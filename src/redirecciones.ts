@@ -11,12 +11,17 @@
  */
 
 export const redirecciones: Record<string, string> = {
-  /* --- Páginas reales del sitio anterior ------------------------------- */
-  '/nosotros': '/nosotros/',
+  /* --- Páginas reales del sitio anterior -------------------------------
+   *
+   * OJO: aquí NO va ninguna ruta que exista como página del sitio nuevo.
+   * Astro resuelve las redirecciones antes que las páginas, así que declarar
+   * '/contacto' o '/nosotros' aquí hacía que esas dos páginas no se generaran
+   * y devolvieran 404 — justamente las dos a las que apunta el menú.
+   * El sufijo con barra lo resuelve el propio servidor; no hay que declararlo.
+   */
   '/about-us': '/nosotros/',
   '/agencias': '/nosotros/',
   '/meet-the-team': '/agentes/',
-  '/contacto': '/contacto/',
   '/contact-us': '/contacto/',
   '/contact-form': '/contacto/',
   '/nuestros-agentes': '/agentes/',
