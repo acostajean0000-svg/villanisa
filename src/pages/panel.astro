@@ -9,6 +9,61 @@
  * No se enlaza desde el sitio ni se indexa.
  */
 import Base from '../layouts/Base.astro';
+
+// La página deja de ser estática: se genera por petición para poder exigir
+// credenciales antes de devolver nada.
+export const prerender = false;
+
+/**
+ * Autenticación básica HTTP. El navegador muestra su propio diálogo y el
+ * servidor no entrega ni un byte del panel sin credenciales correctas.
+ * No es un sistema de usuarios — es una puerta con llave para una
+ * herramienta interna, que es justo lo que hace falta aquí.
+ */
+const USUARIO = import.meta.env.PANEL_USUARIO || 'villanisa';
+const CLAVE = import.meta.env.PANEL_CLAVE;
+
+const pedirClave = () =>
+  new Response('Acceso restringido', {
+    status: 401,
+    headers: {
+      'WWW-Authenticate': 'Basic realm="Panel Villanisa", charset="UTF-8"',
+      'Cache-Control': 'no-store',
+    },
+  });
+
+// Sin clave configurada se cierra el paso. Fallar cerrado, nunca abierto:
+// un despliegue mal configurado no debe dejar el panel al aire.
+if (!CLAVE) {
+  return new Response(
+    'El panel no tiene clave configurada. Define PANEL_CLAVE en las variables de entorno.',
+    { status: 503, headers: { 'Cache-Control': 'no-store' } }
+  );
+}
+
+const cabecera = Astro.request.headers.get('authorization') ?? '';
+const [tipo, credencial] = cabecera.split(' ');
+
+let autorizado = false;
+if (tipo?.toLowerCase() === 'basic' && credencial) {
+  try {
+    const [u, c] = atob(credencial).split(':');
+    // Comparación de tiempo constante: no revela la clave por cronometraje
+    const iguales = (a = '', b = '') => {
+      if (a.length !== b.length) return false;
+      let dif = 0;
+      for (let i = 0; i < a.length; i++) dif |= a.charCodeAt(i) ^ b.charCodeAt(i);
+      return dif === 0;
+    };
+    autorizado = iguales(u, USUARIO) && iguales(c, CLAVE);
+  } catch {
+    autorizado = false;
+  }
+}
+
+if (!autorizado) return pedirClave();
+
+Astro.response.headers.set('Cache-Control', 'no-store');
 ---
 
 <Base
