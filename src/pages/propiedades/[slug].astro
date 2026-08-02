@@ -16,6 +16,7 @@ import {
   aeSrcSet,
   type PropertyListItem,
 } from '../../lib/alterestate';
+import { getOverrides } from '../../lib/contenido';
 
 export async function getStaticPaths() {
   const props = await getAllProperties();
@@ -30,6 +31,13 @@ const { listItem } = Astro.props as { listItem: PropertyListItem };
 // La ficha completa tiene galería, amenidades y agente; si falla la llamada
 // caemos al item del listado para no romper el build.
 const detail = (await getProperty(slug!)) ?? (listItem as any);
+
+// El texto editado por el equipo manda sobre el que venga del CRM.
+const overrides = await getOverrides();
+const propio = overrides[detail.uid] ?? {};
+const descripcionFinal = propio.descripcion
+  ? `<p>${propio.descripcion.replace(/\n{2,}/g, '</p><p>').replace(/\n/g, '<br />')}</p>`
+  : detail.description;
 
 const { amount, currency } = priceOf(detail);
 const precio = formatPrice(amount, currency);
@@ -58,8 +66,9 @@ const base = `${tipo.replace(/s$/, '')} en venta en ${ubicacion}`;
 // Google recorta alrededor de los 60 caracteres y el layout añade " | Villanisa".
 const tituloSEO = base.length > 46 ? base : [base, especificaciones].filter(Boolean).join(' — ');
 
-const nombreGenerico = /^(apartamento|casa|villa|propiedad)(\s+(en|de)\s+venta)?$/i.test((detail.name || '').trim());
-const h1 = !nombreGenerico && (detail.name || '').trim().length > 22 ? detail.name : tituloSEO;
+const nombreDelEquipo = propio.titulo || detail.name;
+const nombreGenerico = /^(apartamento|casa|villa|propiedad)(\s+(en|de)\s+venta)?$/i.test((nombreDelEquipo || '').trim());
+const h1 = !nombreGenerico && (nombreDelEquipo || '').trim().length > 22 ? nombreDelEquipo : tituloSEO;
 
 const titulo = tituloSEO;
 
@@ -67,7 +76,7 @@ const titulo = tituloSEO;
 const zonaHref = detail.sector && detail.category?.name
   ? `/${slugify(detail.category.name)}-en-venta/${slugify(detail.sector)}/`
   : null;
-const descripcionPlana = (detail.description || detail.short_description || '')
+const descripcionPlana = (propio.descripcion || detail.description || detail.short_description || '')
   .replace(/<[^>]*>/g, ' ')
   .replace(/\s+/g, ' ')
   .trim();
@@ -193,7 +202,7 @@ const breadcrumbs = {
         }
 
         {
-          detail.description && (
+          descripcionFinal && (
             <div
               class="prose-villanisa mt-10 max-w-none text-[1.02rem] leading-relaxed text-[var(--text-soft)] [&_h2]:mt-8 [&_h2]:text-[1.3rem] [&_h2]:text-[var(--text)] [&_li]:mt-1.5 [&_p]:mt-4 [&_ul]:mt-4 [&_ul]:list-disc [&_ul]:pl-5"
               set:html={detail.description}

@@ -126,15 +126,22 @@ Astro.response.headers.set('Cache-Control', 'no-store');
 
     <!-- Redactor de descripciones -->
     <section class="container-x mt-16">
-      <h2 class="text-[1.6rem]">Redactor de descripciones</h2>
+      <h2 class="text-[1.6rem]">Editor de descripciones</h2>
       <p class="mt-3 max-w-2xl text-[0.98rem] leading-relaxed text-[var(--text-soft)]">
-        Genera un borrador para cada propiedad sin texto, usando sus datos reales
-        y sus amenidades. <strong class="text-[var(--text)]">No es la versión final</strong>:
-        es para que el asesor edite en dos minutos en vez de escribir desde cero.
-        Añádele siempre algo que solo sepa quien vio la propiedad.
+        Los textos que guardes aquí <strong class="text-[var(--text)]">viven en el
+        almacenamiento de Villanisa, no en AlterEstate</strong>, y mandan sobre lo que
+        venga del CRM. Para las propiedades sin texto se propone un borrador armado
+        con sus datos reales: edítalo y añade siempre algo que solo sepa quien vio
+        la propiedad. Al guardar, el sitio se republica solo.
       </p>
-      <button id="btn-desc" class="btn btn-primary mt-6">Generar borradores</button>
-      <p id="progreso-desc" class="mt-4 text-[0.9rem] text-[var(--text-mute)]"></p>
+      <div class="mt-6 flex flex-wrap items-center gap-3">
+        <button id="btn-desc" class="btn btn-primary">Cargar propiedades</button>
+        <button id="btn-guardar" class="btn btn-ghost" hidden>Guardar cambios</button>
+        <label class="flex items-center gap-2 text-[0.9rem] text-[var(--text-soft)]">
+          <input type="checkbox" id="solo-faltan" checked /> Solo las que no tienen texto
+        </label>
+      </div>
+      <p id="progreso-desc" class="mt-4 text-[0.9rem] text-[var(--text-mute)]" role="status" aria-live="polite"></p>
       <div id="descripciones" class="mt-6 space-y-4"></div>
     </section>
 
@@ -401,66 +408,134 @@ Astro.response.headers.set('Cache-Control', 'no-store');
     return partes.join(' ');
   }
 
-  async function generarBorradores() {
+  let overrides: Record<string, { descripcion?: string; titulo?: string; actualizado?: string }> = {};
+  const editados = new Set<string>();
+
+  async function cargarOverrides() {
+    try {
+      const r = await fetch('/api/contenido');
+      if (!r.ok) return;
+      const j = await r.json();
+      if (j.ok) overrides = j.overrides || {};
+    } catch { /* seguimos sin textos propios */ }
+  }
+
+  function ficha(p: any, texto: string, propio: boolean) {
+    const donde = [p.sector, p.city].filter(Boolean).join(', ');
+    const sello = propio
+      ? '<span class="ml-2 rounded-full bg-[#eaf3ee] px-2.5 py-0.5 text-[0.72rem] font-semibold text-[#12402f]">texto propio</span>'
+      : '<span class="ml-2 rounded-full bg-[#fdf4e3] px-2.5 py-0.5 text-[0.72rem] font-semibold text-[#8a5a12]">borrador</span>';
+    return `<details class="card p-5" data-uid="${p.uid}">
+      <summary class="cursor-pointer list-none font-medium">${p.name || p.slug}${sello}
+        <span class="ml-1 text-[0.82rem] font-normal text-[var(--text-mute)]">${donde}</span>
+      </summary>
+      <textarea class="txt mt-4 w-full rounded-xl border border-[var(--border-control)] bg-[var(--surface)] p-4 text-[0.9rem] leading-relaxed"
+                rows="6">${texto.replace(/</g, '&lt;')}</textarea>
+      <div class="mt-3 flex flex-wrap items-center gap-3 text-[0.8rem] text-[var(--text-mute)]">
+        <span class="cuenta"></span>
+        <a target="_blank" rel="noopener" class="underline underline-offset-4"
+           href="https://villanisa.vercel.app/propiedades/${p.slug}/">Ver en el sitio</a>
+        ${overrides[p.uid]?.actualizado ? `<span>Editado ${new Date(overrides[p.uid].actualizado!).toLocaleDateString('es-DO')}</span>` : ''}
+      </div>
+    </details>`;
+  }
+
+  async function cargarEditor() {
     const btn = $('#btn-desc') as HTMLButtonElement;
     btn.disabled = true;
+    await cargarOverrides();
 
-    const faltan = props.filter(
-      (p) => (p.short_description || '').replace(/<[^>]*>/g, '').trim().length < 80
-    );
-    const salida: string[] = [];
+    const soloFaltan = ($('#solo-faltan') as HTMLInputElement).checked;
+    const objetivo = props.filter((p) => {
+      const tienePropio = Boolean(overrides[p.uid]?.descripcion);
+      const tieneCRM = (p.short_description || '').replace(/<[^>]*>/g, '').trim().length >= 80;
+      return soloFaltan ? !tienePropio && !tieneCRM : true;
+    });
+
+    const partes: string[] = [];
     let hechas = 0;
 
-    // De cuatro en cuatro: hay que pedir la ficha completa por las amenidades
-    for (let i = 0; i < faltan.length; i += 4) {
-      const lote = faltan.slice(i, i + 4);
+    for (let i = 0; i < objetivo.length; i += 4) {
+      const lote = objetivo.slice(i, i + 4);
       const detalles = await Promise.all(
         lote.map((p) =>
-          fetch(`${API}/properties/view/${encodeURIComponent(p.slug)}/`, { headers: cab })
-            .then((r) => (r.ok ? r.json() : null))
-            .catch(() => null)
+          overrides[p.uid]?.descripcion
+            ? Promise.resolve(null)
+            : fetch(`${API}/properties/view/${encodeURIComponent(p.slug)}/`, { headers: cab })
+                .then((r) => (r.ok ? r.json() : null))
+                .catch(() => null)
         )
       );
 
       lote.forEach((p, k) => {
-        const d = detalles[k] || p;
-        const am = Array.isArray(d.amenities)
-          ? d.amenities.map((a: any) => (typeof a === 'string' ? a : a?.name)).filter(Boolean)
-          : [];
-        const texto = borrador(d, am);
+        const propio = overrides[p.uid]?.descripcion;
+        let texto = propio ?? '';
+        if (!texto) {
+          const d = detalles[k] || p;
+          const am = Array.isArray(d.amenities)
+            ? d.amenities.map((a: any) => (typeof a === 'string' ? a : a?.name)).filter(Boolean)
+            : [];
+          texto = borrador(d, am);
+        }
+        partes.push(ficha(p, texto, Boolean(propio)));
         hechas++;
-        salida.push(`<details class="card p-5">
-          <summary class="cursor-pointer list-none font-medium">${p.name || p.slug}
-            <span class="ml-2 text-[0.82rem] font-normal text-[var(--text-mute)]">${[p.sector, p.city].filter(Boolean).join(', ')}</span>
-          </summary>
-          <textarea class="mt-4 w-full rounded-xl border border-[var(--border-control)] bg-[var(--surface)] p-4 text-[0.9rem] leading-relaxed" rows="5">${texto.replace(/</g, '&lt;')}</textarea>
-          <div class="mt-3 flex flex-wrap items-center gap-2">
-            <button class="btn btn-ghost copiar" type="button">Copiar</button>
-            <a class="btn btn-ghost" target="_blank" rel="noopener"
-               href="https://${DOMAIN}/propiedad/${p.slug}">Ver ficha</a>
-            <span class="text-[0.8rem] text-[var(--text-mute)]">${texto.split(' ').length} palabras</span>
-          </div>
-        </details>`);
       });
 
-      $('#progreso-desc').textContent = `Generados ${hechas} de ${faltan.length}…`;
+      $('#progreso-desc').textContent = `Preparadas ${hechas} de ${objetivo.length}…`;
     }
 
-    $('#progreso-desc').textContent =
-      `${faltan.length} borradores listos. Edítalos antes de pegarlos en AlterEstate.`;
-    $('#descripciones').innerHTML = salida.join('');
+    $('#descripciones').innerHTML = partes.join('');
+    $('#progreso-desc').textContent = `${objetivo.length} propiedades listas para editar.`;
+    ($('#btn-guardar') as HTMLElement).hidden = false;
 
-    document.querySelectorAll('.copiar').forEach((b) => {
-      b.addEventListener('click', () => {
-        const ta = (b.closest('details') as HTMLElement).querySelector('textarea') as HTMLTextAreaElement;
-        navigator.clipboard.writeText(ta.value).then(() => {
-          const antes = b.textContent;
-          b.textContent = 'Copiado';
-          setTimeout(() => { b.textContent = antes; }, 1500);
-        });
+    document.querySelectorAll('#descripciones textarea').forEach((t) => {
+      const ta = t as HTMLTextAreaElement;
+      const cuenta = (ta.closest('details') as HTMLElement).querySelector('.cuenta') as HTMLElement;
+      const refrescar = () => {
+        const n = ta.value.trim().split(/\s+/).filter(Boolean).length;
+        cuenta.textContent = `${n} palabras${n < 40 ? ' — corta para posicionar' : ''}`;
+      };
+      refrescar();
+      ta.addEventListener('input', () => {
+        refrescar();
+        editados.add((ta.closest('details') as HTMLElement).dataset.uid!);
+        ($('#btn-guardar') as HTMLElement).textContent = `Guardar ${editados.size} ${editados.size === 1 ? 'cambio' : 'cambios'}`;
       });
     });
 
+    btn.disabled = false;
+  }
+
+  async function guardar() {
+    const btn = $('#btn-guardar') as HTMLButtonElement;
+    if (!editados.size) {
+      $('#progreso-desc').textContent = 'No hay cambios que guardar.';
+      return;
+    }
+    btn.disabled = true;
+    $('#progreso-desc').textContent = 'Guardando…';
+
+    const cambios: Record<string, { descripcion: string }> = {};
+    editados.forEach((uid) => {
+      const d = document.querySelector(`#descripciones details[data-uid="${uid}"] textarea`) as HTMLTextAreaElement;
+      if (d) cambios[uid] = { descripcion: d.value.trim() };
+    });
+
+    try {
+      const r = await fetch('/api/contenido', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cambios }),
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || 'error');
+      $('#progreso-desc').textContent =
+        `${j.escritos} textos guardados (${j.total} en total). Republicación: ${j.despliegue}. Aparecen en el sitio en un par de minutos.`;
+      editados.clear();
+      btn.textContent = 'Guardar cambios';
+    } catch (e) {
+      $('#progreso-desc').textContent = `No se pudo guardar: ${(e as Error).message}`;
+    }
     btn.disabled = false;
   }
 
@@ -532,7 +607,8 @@ Astro.response.headers.set('Cache-Control', 'no-store');
       $('#panel').hidden = false;
       pintar();
       $('#btn-fotos').addEventListener('click', analizarFotos);
-      $('#btn-desc').addEventListener('click', generarBorradores);
+      $('#btn-desc').addEventListener('click', cargarEditor);
+      $('#btn-guardar').addEventListener('click', guardar);
     } catch (e) {
       $('#estado').textContent =
         'No se pudo leer el inventario del CRM. Revisa la conexión e intenta de nuevo.';
