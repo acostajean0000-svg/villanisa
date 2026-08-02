@@ -14,9 +14,10 @@
   --color-bone-50: #fbfaf8;
   --color-bone-100: #f4f2ed;
   --color-bone-200: #e8e4dc;
+  --color-bone-400: #948d80;
   --color-bone-300: #d5cfc2;
 
-  --color-ink-400: #8a867f;
+  --color-ink-400: #767268;
   --color-ink-500: #5f5c56;
   --color-ink-700: #2e2c29;
   --color-ink-800: #1c1b19;
@@ -50,28 +51,10 @@
     --text: var(--color-ink-900);
     --text-soft: var(--color-ink-500);
     --text-mute: var(--color-ink-400);
-  }
-
-  @media (prefers-color-scheme: dark) {
-    :root:where(:not([data-theme='light'])) {
-      color-scheme: dark;
-      --surface: var(--color-ink-900);
-      --surface-raised: var(--color-ink-800);
-      --border: #302e2b;
-      --text: var(--color-bone-50);
-      --text-soft: #b5b1a8;
-      --text-mute: #86827b;
-    }
-  }
-
-  :root[data-theme='dark'] {
-    color-scheme: dark;
-    --surface: var(--color-ink-900);
-    --surface-raised: var(--color-ink-800);
-    --border: #302e2b;
-    --text: var(--color-bone-50);
-    --text-soft: #b5b1a8;
-    --text-mute: #86827b;
+    /* Borde de controles: los divisores decorativos pueden ser finos,
+       pero un campo de formulario es un elemento de interfaz y necesita
+       3:1 de contraste para que se vea dónde hay que escribir. */
+    --border-control: var(--color-bone-400);
   }
 
   html {
@@ -170,7 +153,7 @@
   }
 
   .btn-ghost {
-    border: 1px solid var(--border);
+    border: 1px solid var(--border-control);
     color: var(--text);
   }
   .btn-ghost:hover { border-color: var(--text-mute); }

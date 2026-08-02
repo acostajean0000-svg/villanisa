@@ -60,17 +60,17 @@ const schema = {
   <!-- Filtros: sin framework, puro HTML + un script de 40 líneas -->
   <section class="container-x sticky top-[68px] z-30 mt-10 border-y border-[var(--border)] bg-[var(--surface)]/95 py-4 backdrop-blur-xl">
     <div class="flex flex-wrap items-center gap-2.5">
-      <select id="f-tipo" aria-label="Tipo de propiedad" class="rounded-full border border-[var(--border)] bg-[var(--surface-raised)] px-4 py-2.5 text-[0.9rem]">
+      <select id="f-tipo" aria-label="Tipo de propiedad" class="rounded-full border border-[var(--border-control)] bg-[var(--surface-raised)] px-4 py-2.5 text-[0.9rem]">
         <option value="">Todos los tipos</option>
         {tipos.map((t) => <option value={slugify(t)}>{t}</option>)}
       </select>
 
-      <select id="f-ciudad" aria-label="Ciudad" class="rounded-full border border-[var(--border)] bg-[var(--surface-raised)] px-4 py-2.5 text-[0.9rem]">
+      <select id="f-ciudad" aria-label="Ciudad" class="rounded-full border border-[var(--border-control)] bg-[var(--surface-raised)] px-4 py-2.5 text-[0.9rem]">
         <option value="">Todas las ciudades</option>
         {ciudades.map((c) => <option value={slugify(c)}>{c}</option>)}
       </select>
 
-      <select id="f-hab" aria-label="Habitaciones" class="rounded-full border border-[var(--border)] bg-[var(--surface-raised)] px-4 py-2.5 text-[0.9rem]">
+      <select id="f-hab" aria-label="Habitaciones" class="rounded-full border border-[var(--border-control)] bg-[var(--surface-raised)] px-4 py-2.5 text-[0.9rem]">
         <option value="">Habitaciones</option>
         <option value="1">1+</option>
         <option value="2">2+</option>
@@ -78,7 +78,7 @@ const schema = {
         <option value="4">4+</option>
       </select>
 
-      <select id="f-precio" aria-label="Presupuesto" class="rounded-full border border-[var(--border)] bg-[var(--surface-raised)] px-4 py-2.5 text-[0.9rem]">
+      <select id="f-precio" aria-label="Presupuesto" class="rounded-full border border-[var(--border-control)] bg-[var(--surface-raised)] px-4 py-2.5 text-[0.9rem]">
         <option value="">Presupuesto</option>
         <option value="0-100000">Hasta US$100k</option>
         <option value="100000-200000">US$100k – 200k</option>
