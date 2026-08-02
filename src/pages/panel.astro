@@ -353,6 +353,19 @@ Astro.response.headers.set('Cache-Control', 'no-store');
     xs.length === 1 ? xs[0] : xs.slice(0, -1).join(', ') + ' y ' + xs[xs.length - 1];
 
   /**
+   * El campo de amenidades del CRM viene mezclado: junto a "piscina" o "gimnasio"
+   * hay etiquetas comerciales ("alta rentabilidad"), materiales ("acero") y datos
+   * que ya damos estructurados ("3 habitaciones", "4 niveles"). Publicar eso como
+   * amenidad produce frases como "entre sus amenidades: acero", que leen a
+   * descuido. Filtramos antes de redactar; el dato sigue en el CRM intacto.
+   */
+  const RUIDO =
+    /^(\d|acero|hormig[oó]n|block|alta rentabilidad|rentabilidad|oportunidad|inversi[oó]n|financiamiento|bono|nivel|niveles|ba[ñn]o|ba[ñn]os|habitaci[oó]n|habitaciones|parqueo|parqueos|metros?|m2|m²)\b/i;
+
+  const amenidadesUtiles = (xs: string[]) =>
+    xs.map((a) => (a || '').trim()).filter((a) => a.length > 2 && !RUIDO.test(a));
+
+  /**
    * Compone un borrador a partir de datos estructurados.
    *
    * Se varían las aperturas y los cierres según la propiedad para que 101
@@ -475,7 +488,7 @@ Astro.response.headers.set('Cache-Control', 'no-store');
           const am = Array.isArray(d.amenities)
             ? d.amenities.map((a: any) => (typeof a === 'string' ? a : a?.name)).filter(Boolean)
             : [];
-          texto = borrador(d, am);
+          texto = borrador(d, amenidadesUtiles(am));
         }
         partes.push(ficha(p, texto, Boolean(propio)));
         hechas++;
