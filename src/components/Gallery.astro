@@ -1,0 +1,233 @@
+---
+/**
+ * Galería de propiedad con visor a pantalla completa.
+ * Sin librerías: teclado, gestos táctiles, precarga de vecinos y foco
+ * gestionado. Todo en ~90 líneas de JS que solo se ejecutan al abrir.
+ */
+import { aeImage, aeSrcSet } from '../lib/alterestate';
+
+export interface Props {
+  fotos: string[];
+  titulo: string;
+}
+
+const { fotos, titulo } = Astro.props;
+const [portada, ...resto] = fotos;
+const laterales = resto.slice(0, 2);
+---
+
+{
+  portada && (
+    <div class="grid gap-2 md:grid-cols-4 md:grid-rows-2" data-galeria>
+      <button
+        type="button"
+        class="group relative overflow-hidden rounded-[var(--radius-card)] md:col-span-3 md:row-span-2"
+        data-foto="0"
+        aria-label={`Ampliar foto 1 de ${fotos.length}`}
+      >
+        <img
+          src={aeImage(portada, 1600, { height: 1100, fit: 'cover' })}
+          srcset={aeSrcSet(portada, [700, 1100, 1600], 1600 / 1100, 'cover')}
+          sizes="(min-width: 768px) 70vw, 100vw"
+          alt={titulo}
+          width="1600"
+          height="1100"
+          fetchpriority="high"
+          decoding="async"
+          class="h-full max-h-[70vh] w-full object-cover transition-transform duration-700 ease-[var(--ease-out-soft)] group-hover:scale-[1.02]"
+        />
+        <span class="pointer-events-none absolute bottom-3 right-3 rounded-full bg-black/60 px-3.5 py-1.5 text-[0.78rem] font-medium text-white opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100">
+          Ampliar
+        </span>
+      </button>
+
+      {laterales.map((g, i) => (
+        <button
+          type="button"
+          class="group relative hidden overflow-hidden rounded-[var(--radius-card)] md:block"
+          data-foto={i + 1}
+          aria-label={`Ampliar foto ${i + 2} de ${fotos.length}`}
+        >
+          <img
+            src={aeImage(g, 800, { height: 600, fit: 'cover' })}
+            srcset={aeSrcSet(g, [400, 800, 1100], 4 / 3, 'cover')}
+            sizes="(min-width: 768px) 24vw, 100vw"
+            alt={`${titulo}, foto ${i + 2}`}
+            width="800"
+            height="600"
+            loading="lazy"
+            decoding="async"
+            class="h-full w-full object-cover transition-transform duration-700 ease-[var(--ease-out-soft)] group-hover:scale-[1.04]"
+          />
+          {/* En la última miniatura visible mostramos cuántas quedan */}
+          {i === laterales.length - 1 && fotos.length > 3 && (
+            <span class="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/45 text-[1.05rem] font-medium text-white backdrop-blur-[2px]">
+              +{fotos.length - 3} fotos
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+{
+  fotos.length > 1 && (
+    <div class="mt-3 flex flex-wrap gap-2">
+      <button type="button" class="btn btn-ghost" data-foto="0">
+        Ver las {fotos.length} fotos
+      </button>
+    </div>
+  )
+}
+
+<!-- Visor -->
+<dialog
+  id="visor"
+  class="fixed inset-0 z-50 m-0 h-full max-h-none w-full max-w-none bg-transparent p-0 backdrop:bg-black/92 backdrop:backdrop-blur-sm"
+  aria-label="Galería de fotos"
+>
+  <div class="flex h-full w-full flex-col bg-black/92">
+    <header class="flex items-center justify-between px-4 py-3.5 text-white sm:px-6">
+      <p class="text-[0.85rem] tabular-nums opacity-80">
+        <span id="visor-n">1</span> / {fotos.length}
+      </p>
+      <button
+        type="button"
+        id="visor-x"
+        class="rounded-full p-2.5 transition-colors hover:bg-white/12"
+        aria-label="Cerrar galería"
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <path d="M18 6 6 18M6 6l12 12" stroke-linecap="round" />
+        </svg>
+      </button>
+    </header>
+
+    <div class="relative flex min-h-0 flex-1 items-center justify-center px-2 sm:px-16">
+      <button
+        type="button"
+        id="visor-prev"
+        class="absolute left-1 z-10 rounded-full bg-black/45 p-3 text-white backdrop-blur-sm transition-colors hover:bg-black/70 sm:left-4"
+        aria-label="Foto anterior"
+      >
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <path d="m15 18-6-6 6-6" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </button>
+
+      <img id="visor-img" src="" alt="" class="max-h-full max-w-full object-contain select-none" draggable="false" />
+
+      <button
+        type="button"
+        id="visor-next"
+        class="absolute right-1 z-10 rounded-full bg-black/45 p-3 text-white backdrop-blur-sm transition-colors hover:bg-black/70 sm:right-4"
+        aria-label="Foto siguiente"
+      >
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <path d="m9 18 6-6-6-6" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </button>
+    </div>
+
+    <!-- Tira de miniaturas -->
+    <div id="visor-tira" class="flex gap-2 overflow-x-auto px-4 py-4 sm:px-6">
+      {fotos.map((g, i) => (
+        <button
+          type="button"
+          class="visor-mini shrink-0 overflow-hidden rounded-md opacity-45 transition-opacity"
+          data-ir={i}
+          aria-label={`Ir a la foto ${i + 1}`}
+        >
+          <img
+            src={aeImage(g, 200, { height: 150, fit: 'cover' })}
+            alt=""
+            width="100"
+            height="75"
+            loading="lazy"
+            class="h-[54px] w-[72px] object-cover"
+          />
+        </button>
+      ))}
+    </div>
+  </div>
+</dialog>
+
+<script define:vars={{ grandes: fotos.map((g) => aeImage(g, 1800, { fit: 'inside', quality: 85 })) }}>
+  const visor = document.getElementById('visor');
+  const img = document.getElementById('visor-img');
+  const num = document.getElementById('visor-n');
+  const tira = document.getElementById('visor-tira');
+  const minis = [...document.querySelectorAll('.visor-mini')];
+  let i = 0;
+  let ultimoFoco = null;
+
+  const precargar = (n) => {
+    if (grandes[n]) new Image().src = grandes[n];
+  };
+
+  function mostrar(n) {
+    i = (n + grandes.length) % grandes.length;
+    img.src = grandes[i];
+    img.alt = `Foto ${i + 1} de ${grandes.length}`;
+    num.textContent = String(i + 1);
+
+    minis.forEach((m, k) => {
+      const activa = k === i;
+      m.classList.toggle('opacity-45', !activa);
+      m.classList.toggle('opacity-100', activa);
+      m.classList.toggle('ring-2', activa);
+      m.classList.toggle('ring-white', activa);
+      if (activa) m.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+    });
+
+    // Vecinos listos antes de que los pidan
+    precargar(i + 1 < grandes.length ? i + 1 : 0);
+    precargar(i - 1 >= 0 ? i - 1 : grandes.length - 1);
+  }
+
+  function abrir(n) {
+    ultimoFoco = document.activeElement;
+    mostrar(n);
+    visor.showModal();
+    document.body.style.overflow = 'hidden';
+  }
+
+  function cerrar() {
+    visor.close();
+    document.body.style.overflow = '';
+    ultimoFoco?.focus?.();
+  }
+
+  document.querySelectorAll('[data-foto]').forEach((b) => {
+    b.addEventListener('click', () => abrir(Number(b.dataset.foto)));
+  });
+  minis.forEach((m) => m.addEventListener('click', () => mostrar(Number(m.dataset.ir))));
+
+  document.getElementById('visor-x').addEventListener('click', cerrar);
+  document.getElementById('visor-prev').addEventListener('click', () => mostrar(i - 1));
+  document.getElementById('visor-next').addEventListener('click', () => mostrar(i + 1));
+
+  visor.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight') { e.preventDefault(); mostrar(i + 1); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); mostrar(i - 1); }
+  });
+
+  // Esc ya lo maneja <dialog>, pero hay que restaurar el scroll
+  visor.addEventListener('close', () => { document.body.style.overflow = ''; });
+
+  // Clic en el fondo cierra; sobre la foto o los controles, no
+  visor.addEventListener('click', (e) => {
+    if (e.target === visor || e.target.closest('.flex.h-full') === e.target) cerrar();
+  });
+
+  // Deslizar en móvil
+  let x0 = null;
+  img.addEventListener('touchstart', (e) => { x0 = e.changedTouches[0].clientX; }, { passive: true });
+  img.addEventListener('touchend', (e) => {
+    if (x0 === null) return;
+    const dx = e.changedTouches[0].clientX - x0;
+    if (Math.abs(dx) > 45) mostrar(dx < 0 ? i + 1 : i - 1);
+    x0 = null;
+  }, { passive: true });
+</script>

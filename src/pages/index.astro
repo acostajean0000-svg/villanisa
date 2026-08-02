@@ -1,0 +1,143 @@
+---
+import Base from '../layouts/Base.astro';
+import PropertyCard from '../components/PropertyCard.astro';
+import LeadForm from '../components/LeadForm.astro';
+import { getAllProperties, priceOf, slugify } from '../lib/alterestate';
+
+const props = await getAllProperties();
+
+const destacadas = [...props]
+  .filter((p) => p.featured_image)
+  .sort((a, b) => (priceOf(b).amount ?? 0) - (priceOf(a).amount ?? 0))
+  .slice(0, 6);
+
+// Zonas más fuertes, con la URL que la gente busca: /apartamentos-en-venta/naco/
+const zonas = (() => {
+  const m = new Map<string, { tipo: string; zona: string; ciudad?: string; n: number; href: string }>();
+  for (const p of props) {
+    const tipo = p.category?.name;
+    if (!tipo || !p.sector) continue;
+    const href = `/${slugify(tipo)}-en-venta/${slugify(p.sector)}/`;
+    if (!m.has(href)) m.set(href, { tipo, zona: p.sector, ciudad: p.city, n: 0, href });
+    m.get(href)!.n++;
+  }
+  return [...m.values()].filter((z) => z.n >= 2).sort((a, b) => b.n - a.n).slice(0, 10);
+})();
+const total = props.length;
+
+const descripcion =
+  'Inmobiliaria dominicana con más de 25 años vendiendo apartamentos, casas y villas en Santo Domingo, Punta Cana y todo el país. Asesores, no vendedores.';
+
+const pilares = [
+  {
+    t: '25 años, no 25 meses',
+    d: 'Hemos acompañado compras en cada ciclo del mercado dominicano. Sabemos qué proyecto entrega a tiempo y cuál no.',
+  },
+  {
+    t: 'Asesores, no vendedores',
+    d: 'Si la propiedad no te conviene, te lo decimos. Preferimos perder una comisión que ganarnos un arrepentimiento.',
+  },
+  {
+    t: 'Inventario verificado',
+    d: 'Cada propiedad publicada la conoce un asesor nuestro. Nada de listados fantasma ni precios de hace dos años.',
+  },
+];
+---
+
+<Base title="Villanisa — Inmobiliaria en República Dominicana" description={descripcion}>
+  <!-- Hero -->
+  <section class="container-x pt-16 pb-6 md:pt-24">
+    <div class="max-w-4xl">
+      <p class="eyebrow">Inmobiliaria dominicana desde 1999</p>
+      <h1 class="mt-5 text-[clamp(2.6rem,7vw,5.2rem)] leading-[0.98] tracking-[-0.03em]">
+        La casa correcta,<br />
+        <span class="text-[var(--color-brand-500)]">al precio correcto.</span>
+      </h1>
+      <p class="mt-7 max-w-xl text-[1.1rem] leading-relaxed text-[var(--text-soft)]">
+        Más de dos décadas ayudando a familias dominicanas a comprar bien.
+        {total > 0 && <>Hoy tenemos <strong class="font-semibold text-[var(--text)]">{total} propiedades</strong> disponibles.</>}
+      </p>
+      <div class="mt-9 flex flex-wrap gap-3">
+        <a href="/propiedades/" class="btn btn-primary">Ver propiedades</a>
+        <a href="/contacto/" class="btn btn-ghost">Quiero asesoría</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Destacadas -->
+  {
+    destacadas.length > 0 && (
+      <section class="container-x mt-24">
+        <div class="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p class="eyebrow">Selección</p>
+            <h2 class="mt-2.5 text-[clamp(1.8rem,3.5vw,2.6rem)]">Propiedades destacadas</h2>
+          </div>
+          <a href="/propiedades/" class="text-[0.95rem] text-[var(--text-soft)] underline-offset-4 hover:text-[var(--text)] hover:underline">
+            Ver las {total} →
+          </a>
+        </div>
+
+        <div class="mt-10 grid gap-x-7 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
+          {destacadas.map((p, i) => (
+            <PropertyCard property={p} eager={i < 3} />
+          ))}
+        </div>
+      </section>
+    )
+  }
+
+  <!-- Sectores: la malla de enlaces que sostiene el SEO local -->
+  {
+    zonas.length > 0 && (
+      <section class="container-x mt-28">
+        <p class="eyebrow">Por zona</p>
+        <h2 class="mt-2.5 text-[clamp(1.8rem,3.5vw,2.6rem)]">Dónde estamos vendiendo</h2>
+        <div class="mt-9 flex flex-wrap gap-2.5">
+          {zonas.map((z) => (
+            <a
+              href={z.href}
+              class="reveal rounded-full border border-[var(--border)] px-4.5 py-2.5 text-[0.92rem] transition-colors hover:border-[var(--color-brand-500)] hover:text-[var(--color-brand-500)]"
+            >
+              {z.tipo} en {z.zona}
+              <span class="ml-1.5 text-[var(--text-mute)]">{z.n}</span>
+            </a>
+          ))}
+        </div>
+      </section>
+    )
+  }
+
+  <!-- Pilares -->
+  <section class="container-x mt-28">
+    <div class="grid gap-10 md:grid-cols-3">
+      {
+        pilares.map((p) => (
+          <div class="reveal">
+            <h3 class="text-[1.35rem] leading-snug">{p.t}</h3>
+            <p class="mt-3 text-[0.98rem] leading-relaxed text-[var(--text-soft)]">{p.d}</p>
+          </div>
+        ))
+      }
+    </div>
+  </section>
+
+  <!-- Conversión -->
+  <section class="container-x mt-28">
+    <div class="card grid gap-10 p-8 md:grid-cols-2 md:p-14">
+      <div>
+        <p class="eyebrow">Sin compromiso</p>
+        <h2 class="mt-3 text-[clamp(1.7rem,3vw,2.4rem)] leading-tight">
+          Cuéntanos qué buscas y te mandamos opciones reales.
+        </h2>
+        <p class="mt-5 text-[1rem] leading-relaxed text-[var(--text-soft)]">
+          Presupuesto, zona, cuántas habitaciones. Un asesor revisa el inventario
+          completo — incluido lo que aún no publicamos — y te responde el mismo día.
+        </p>
+      </div>
+      <div>
+        <LeadForm formName="home-asesoria" />
+      </div>
+    </div>
+  </section>
+</Base>

@@ -1,0 +1,302 @@
+---
+import Base from '../../layouts/Base.astro';
+import PropertyCard from '../../components/PropertyCard.astro';
+import LeadForm from '../../components/LeadForm.astro';
+import Gallery from '../../components/Gallery.astro';
+import {
+  getAllProperties,
+  getProperty,
+  formatPrice,
+  priceOf,
+  imageOf,
+  galleryOf,
+  namesOf,
+  aeImage,
+  slugify,
+  aeSrcSet,
+  type PropertyListItem,
+} from '../../lib/alterestate';
+
+export async function getStaticPaths() {
+  const props = await getAllProperties();
+  return props
+    .filter((p) => p.slug)
+    .map((p) => ({ params: { slug: p.slug }, props: { listItem: p } }));
+}
+
+const { slug } = Astro.params;
+const { listItem } = Astro.props as { listItem: PropertyListItem };
+
+// La ficha completa tiene galería, amenidades y agente; si falla la llamada
+// caemos al item del listado para no romper el build.
+const detail = (await getProperty(slug!)) ?? (listItem as any);
+
+const { amount, currency } = priceOf(detail);
+const precio = formatPrice(amount, currency);
+const portada = imageOf(detail);
+const galeria = galleryOf(detail);
+// La portada puede o no venir dentro de la galería: unimos sin duplicar.
+const fotos = [...new Set([imageOf(detail), ...galeria].filter(Boolean) as string[])];
+const amenidades = namesOf(detail.amenities);
+const agente = detail.agents?.[0];
+const ubicacion = [detail.sector, detail.city].filter(Boolean).join(', ');
+
+const tipo = detail.category?.name ?? 'Propiedad';
+
+/**
+ * Los nombres que escriben los agentes en el CRM no sirven para posicionar:
+ * "Apartamento en venta", "✨ Moderno apartamento con terraza", "Torre Caney".
+ * El <title> se arma siempre desde datos estructurados, con la forma que la
+ * gente teclea en Google. El H1 conserva el nombre del agente solo si aporta.
+ */
+const especificaciones = [
+  detail.room ? `${detail.room} hab` : null,
+  detail.property_area ? `${detail.property_area} m²` : null,
+].filter(Boolean).join(', ');
+
+const base = `${tipo.replace(/s$/, '')} en venta en ${ubicacion}`;
+// Google recorta alrededor de los 60 caracteres y el layout añade " | Villanisa".
+const tituloSEO = base.length > 46 ? base : [base, especificaciones].filter(Boolean).join(' — ');
+
+const nombreGenerico = /^(apartamento|casa|villa|propiedad)(\s+(en|de)\s+venta)?$/i.test((detail.name || '').trim());
+const h1 = !nombreGenerico && (detail.name || '').trim().length > 22 ? detail.name : tituloSEO;
+
+const titulo = tituloSEO;
+
+// Enlace a la página de zona: cierra el circuito de enlazado interno
+const zonaHref = detail.sector && detail.category?.name
+  ? `/${slugify(detail.category.name)}-en-venta/${slugify(detail.sector)}/`
+  : null;
+const descripcionPlana = (detail.description || detail.short_description || '')
+  .replace(/<[^>]*>/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
+const metaDesc =
+  descripcionPlana.slice(0, 155) ||
+  `${tipo} en venta en ${ubicacion}. ${precio}. Villanisa, más de 25 años en el mercado inmobiliario dominicano.`;
+
+const fichaTecnica = [
+  { k: 'Tipo', v: tipo },
+  { k: 'Habitaciones', v: detail.room },
+  { k: 'Baños', v: detail.bathroom },
+  { k: 'Medios baños', v: detail.half_bathrooms },
+  { k: 'Parqueos', v: detail.parkinglot },
+  { k: 'Área', v: detail.property_area ? `${detail.property_area} m²` : null },
+  { k: 'Terreno', v: detail.terrain_area ? `${detail.terrain_area} m²` : null },
+  { k: 'Nivel', v: detail.floor_level },
+  { k: 'Año', v: detail.year_construction },
+].filter((r) => r.v !== null && r.v !== undefined && r.v !== 0 && r.v !== '');
+
+// Propiedades similares: mismo sector primero, luego misma ciudad.
+const todas = await getAllProperties();
+const similares = todas
+  .filter((p) => p.uid !== detail.uid)
+  .sort((a, b) => {
+    const score = (x: PropertyListItem) =>
+      (x.sector === detail.sector ? 2 : 0) + (x.city === detail.city ? 1 : 0);
+    return score(b) - score(a);
+  })
+  .slice(0, 3);
+
+const schema = {
+  '@context': 'https://schema.org',
+  '@type': 'RealEstateListing',
+  name: detail.name,
+  description: metaDesc,
+  url: new URL(`/propiedades/${slug}/`, Astro.site).href,
+  image: fotos.slice(0, 8),
+  datePosted: new Date().toISOString().split('T')[0],
+  ...(amount && {
+    offers: {
+      '@type': 'Offer',
+      price: amount,
+      priceCurrency: currency,
+      availability: 'https://schema.org/InStock',
+      seller: { '@id': 'https://villanisa.com.do/#organization' },
+    },
+  }),
+  address: {
+    '@type': 'PostalAddress',
+    addressLocality: detail.city,
+    addressRegion: detail.province ?? detail.city,
+    addressCountry: 'DO',
+  },
+  ...(detail.room && { numberOfRooms: detail.room }),
+  ...(detail.property_area && {
+    floorSize: { '@type': 'QuantitativeValue', value: detail.property_area, unitCode: 'MTK' },
+  }),
+};
+
+const breadcrumbs = {
+  '@context': 'https://schema.org',
+  '@type': 'BreadcrumbList',
+  itemListElement: [
+    { '@type': 'ListItem', position: 1, name: 'Inicio', item: 'https://villanisa.com.do/' },
+    { '@type': 'ListItem', position: 2, name: 'Propiedades', item: 'https://villanisa.com.do/propiedades/' },
+    ...(zonaHref
+      ? [{ '@type': 'ListItem', position: 3, name: detail.sector, item: new URL(zonaHref, Astro.site).href }]
+      : []),
+    { '@type': 'ListItem', position: zonaHref ? 4 : 3, name: detail.name },
+  ],
+};
+---
+
+<Base title={titulo} description={metaDesc} image={portada} schema={[schema, breadcrumbs]}>
+  <article>
+    <!-- Galería -->
+    <section class="container-x pt-6">
+      <nav aria-label="Ruta" class="mb-5 text-[0.82rem] text-[var(--text-mute)]">
+        <a href="/" class="hover:text-[var(--text)]">Inicio</a>
+        <span class="mx-1.5">/</span>
+        <a href="/propiedades/" class="hover:text-[var(--text)]">Propiedades</a>
+        {zonaHref && (
+          <>
+            <span class="mx-1.5">/</span>
+            <a href={zonaHref} class="hover:text-[var(--text)]">{detail.sector}</a>
+          </>
+        )}
+        <span class="mx-1.5">/</span>
+        <span class="text-[var(--text-soft)]">{detail.name}</span>
+      </nav>
+
+      <Gallery fotos={fotos} titulo={titulo} />
+    </section>
+
+    <!-- Contenido -->
+    <section class="container-x mt-12 grid gap-14 lg:grid-cols-[1.65fr_1fr]">
+      <div>
+        <p class="eyebrow">{tipo} en {ubicacion}</p>
+        <h1 class="mt-3 text-[clamp(2rem,4.5vw,3rem)] leading-[1.08]">{h1}</h1>
+        <p class="mt-4 font-[family-name:var(--font-display)] text-[2rem] text-[var(--color-gold-600)]">
+          {precio}
+        </p>
+
+        {zonaHref && (
+          <p class="mt-3 text-[0.92rem] text-[var(--text-soft)]">
+            Ver <a href={zonaHref} class="underline underline-offset-4 hover:text-[var(--text)]">
+              {tipo.toLowerCase()} en venta en {detail.sector}
+            </a>
+          </p>
+        )}
+
+        {
+          fichaTecnica.length > 0 && (
+            <dl class="mt-10 grid grid-cols-2 gap-x-8 gap-y-5 border-y border-[var(--border)] py-8 sm:grid-cols-3">
+              {fichaTecnica.map((r) => (
+                <div>
+                  <dt class="eyebrow">{r.k}</dt>
+                  <dd class="mt-1 text-[1.05rem]">{r.v}</dd>
+                </div>
+              ))}
+            </dl>
+          )
+        }
+
+        {
+          detail.description && (
+            <div
+              class="prose-villanisa mt-10 max-w-none text-[1.02rem] leading-relaxed text-[var(--text-soft)] [&_h2]:mt-8 [&_h2]:text-[1.3rem] [&_h2]:text-[var(--text)] [&_li]:mt-1.5 [&_p]:mt-4 [&_ul]:mt-4 [&_ul]:list-disc [&_ul]:pl-5"
+              set:html={detail.description}
+            />
+          )
+        }
+
+        {
+          amenidades.length > 0 && (
+            <div class="mt-12">
+              <h2 class="text-[1.4rem]">Amenidades</h2>
+              <ul class="mt-5 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+                {amenidades.map((a) => (
+                  <li class="flex items-start gap-2 text-[0.92rem] text-[var(--text-soft)]">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" class="mt-1 shrink-0 text-[var(--color-brand-500)]" aria-hidden="true">
+                      <path d="M20 6 9 17l-5-5" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                    {a}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )
+        }
+
+        {
+          detail.youtubeiframe && (
+            <div class="mt-12">
+              <h2 class="text-[1.4rem]">Video</h2>
+              <div class="mt-5 aspect-video overflow-hidden rounded-[var(--radius-card)]" set:html={detail.youtubeiframe} />
+            </div>
+          )
+        }
+
+        {
+          detail.mapiframe && (
+            <div class="mt-12">
+              <h2 class="text-[1.4rem]">Ubicación</h2>
+              <div class="mt-5 aspect-[16/9] overflow-hidden rounded-[var(--radius-card)]" set:html={detail.mapiframe} />
+            </div>
+          )
+        }
+      </div>
+
+      <!-- Columna de conversión -->
+      <aside class="lg:sticky lg:top-24 lg:self-start">
+        <div class="card p-6">
+          {
+            agente && (
+              <div class="mb-6 flex items-center gap-3.5 border-b border-[var(--border)] pb-6">
+                {agente.avatar && (
+                  <img
+                    src={aeImage(agente.avatar, 128, { height: 128, fit: 'cover' })}
+                    alt={agente.full_name ?? 'Agente'}
+                    width="52"
+                    height="52"
+                    loading="lazy"
+                    class="h-13 w-13 rounded-full object-cover"
+                  />
+                )}
+                <div>
+                  <p class="font-medium">{agente.full_name}</p>
+                  <p class="text-[0.82rem] text-[var(--text-mute)]">{agente.position ?? 'Asesor inmobiliario'}</p>
+                </div>
+              </div>
+            )
+          }
+
+          <p class="font-[family-name:var(--font-display)] text-[1.3rem] leading-snug">
+            ¿Te interesa esta propiedad?
+          </p>
+          <p class="mt-2 text-[0.9rem] leading-relaxed text-[var(--text-soft)]">
+            Te respondemos el mismo día, sin compromiso.
+          </p>
+
+          <LeadForm
+            propertyUid={detail.uid}
+            propertyName={detail.name}
+            formName="ficha-propiedad"
+          />
+
+          <a
+            href={`https://wa.me/18093283379?text=${encodeURIComponent(`Hola, me interesa: ${detail.name} (${precio})`)}`}
+            class="btn btn-ghost mt-3 w-full"
+            rel="noopener"
+          >
+            Preguntar por WhatsApp
+          </a>
+        </div>
+      </aside>
+    </section>
+
+    {
+      similares.length > 0 && (
+        <section class="container-x mt-28">
+          <h2 class="text-[1.8rem]">Propiedades similares</h2>
+          <div class="mt-8 grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
+            {similares.map((p) => (
+              <PropertyCard property={p} />
+            ))}
+          </div>
+        </section>
+      )
+    }
+  </article>
+</Base>

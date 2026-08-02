@@ -1,0 +1,71 @@
+---
+import Base from '../layouts/Base.astro';
+import { getAgents, aeImage } from '../lib/alterestate';
+
+const agentes = await getAgents();
+
+const descripcion =
+  'Conoce al equipo de Villanisa: asesores inmobiliarios con años de experiencia en el mercado dominicano, listos para acompañarte en tu compra.';
+---
+
+<Base title="Nuestros agentes" description={descripcion}>
+  <section class="container-x pt-14">
+    <p class="eyebrow">El equipo</p>
+    <h1 class="mt-3 max-w-3xl text-[clamp(2.2rem,5vw,3.4rem)] leading-[1.06]">
+      Gente que conoce el mercado, no un centro de llamadas
+    </h1>
+    <p class="mt-5 max-w-xl text-[1.05rem] leading-relaxed text-[var(--text-soft)]">
+      Cada propiedad de este sitio la respalda un asesor con nombre y apellido.
+      Ese es el que te contesta y el que te acompaña hasta la firma.
+    </p>
+  </section>
+
+  <section class="container-x mt-14">
+    {
+      agentes.length === 0 ? (
+        <p class="text-[var(--text-soft)]">
+          Estamos actualizando el directorio. Escríbenos al{' '}
+          <a href="tel:+18093283379" class="underline underline-offset-4">809-328-3379</a>.
+        </p>
+      ) : (
+        <div class="grid gap-x-8 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
+          {agentes.map((a) => (
+            <article class="reveal">
+              {a.avatar && (
+                <img
+                  src={aeImage(a.avatar, 600, { height: 600, fit: 'cover' })}
+                  alt={a.full_name ?? 'Agente de Villanisa'}
+                  width="400"
+                  height="400"
+                  loading="lazy"
+                  decoding="async"
+                  class="aspect-square w-full rounded-[var(--radius-card)] object-cover"
+                />
+              )}
+              <h2 class="mt-4 text-[1.25rem]">{a.full_name}</h2>
+              {a.position && <p class="mt-0.5 text-[0.85rem] text-[var(--text-mute)]">{a.position}</p>}
+              {a.bio && (
+                <div
+                  class="mt-3 line-clamp-4 text-[0.92rem] leading-relaxed text-[var(--text-soft)]"
+                  set:html={a.bio}
+                />
+              )}
+              <div class="mt-4 flex flex-wrap gap-2">
+                {a.phone && (
+                  <a href={`https://wa.me/${a.phone.replace(/\D/g, '')}`} rel="noopener" class="btn btn-ghost !px-4 !py-2 !text-[0.85rem]">
+                    WhatsApp
+                  </a>
+                )}
+                {a.email && (
+                  <a href={`mailto:${a.email}`} class="btn btn-ghost !px-4 !py-2 !text-[0.85rem]">
+                    Correo
+                  </a>
+                )}
+              </div>
+            </article>
+          ))}
+        </div>
+      )
+    }
+  </section>
+</Base>

@@ -1,0 +1,65 @@
+---
+import Base from '../layouts/Base.astro';
+import LeadForm from '../components/LeadForm.astro';
+
+const descripcion =
+  'Villanisa es una inmobiliaria dominicana con más de 25 años de trayectoria. Asesoramos compras de apartamentos, casas y villas en todo el país.';
+
+const valores = [
+  { t: 'Transparencia', d: 'El precio, los gastos de cierre y los tiempos de entrega, dichos completos desde el principio.' },
+  { t: 'Criterio', d: 'Conocemos las constructoras. Sabemos cuáles entregan y cuáles se atrasan.' },
+  { t: 'Acompañamiento', d: 'Desde la primera visita hasta la firma en el notario, y después también.' },
+];
+---
+
+<Base title="Nosotros" description={descripcion}>
+  <section class="container-x pt-16">
+    <p class="eyebrow">Nosotros</p>
+    <h1 class="mt-4 max-w-3xl text-[clamp(2.3rem,5.5vw,4rem)] leading-[1.04]">
+      Vendiendo realidades,<br />construyendo sueños
+    </h1>
+  </section>
+
+  <section class="container-x mt-12 grid gap-14 lg:grid-cols-[1.3fr_1fr]">
+    <div class="max-w-2xl space-y-5 text-[1.05rem] leading-relaxed text-[var(--text-soft)]">
+      <p>
+        Villanisa nació hace más de dos décadas con una idea simple: en República
+        Dominicana hacía falta alguien que asesorara al comprador, no solo que le
+        vendiera. Esa distinción sigue siendo lo que nos define.
+      </p>
+      <p>
+        Hemos acompañado compras de apartamentos en el Distrito Nacional, casas en
+        Santo Domingo Este, villas en Punta Cana y proyectos en planos en todo el
+        país. Cada una con una familia detrás tomando probablemente la decisión
+        financiera más grande de su vida.
+      </p>
+      <p>
+        Por eso trabajamos como trabajamos: pocas propiedades, bien conocidas, y un
+        asesor que responde el teléfono.
+      </p>
+    </div>
+
+    <div class="space-y-8">
+      {
+        valores.map((v) => (
+          <div class="reveal border-l-2 border-[var(--color-brand-500)] pl-5">
+            <h2 class="text-[1.2rem]">{v.t}</h2>
+            <p class="mt-2 text-[0.95rem] leading-relaxed text-[var(--text-soft)]">{v.d}</p>
+          </div>
+        ))
+      }
+    </div>
+  </section>
+
+  <section class="container-x mt-24">
+    <div class="card grid gap-8 p-8 md:grid-cols-2 md:p-12">
+      <div>
+        <h2 class="text-[1.7rem] leading-tight">¿Empezamos?</h2>
+        <p class="mt-4 text-[0.98rem] leading-relaxed text-[var(--text-soft)]">
+          Cuéntanos qué buscas y un asesor te contacta hoy mismo.
+        </p>
+      </div>
+      <LeadForm formName="nosotros" />
+    </div>
+  </section>
+</Base>

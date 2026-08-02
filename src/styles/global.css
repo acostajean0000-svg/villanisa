@@ -1,0 +1,188 @@
+@import 'tailwindcss';
+
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/fraunces';
+
+/* ============================================================
+   Sistema de diseño Villanisa
+   Los colores de marca viven aquí y solo aquí. Cambiar el acento
+   en un lugar repinta todo el sitio.
+   ============================================================ */
+
+@theme {
+  /* Base neutra cálida: se lee como papel, no como pantalla */
+  --color-bone-50: #fbfaf8;
+  --color-bone-100: #f4f2ed;
+  --color-bone-200: #e8e4dc;
+  --color-bone-300: #d5cfc2;
+
+  --color-ink-400: #8a867f;
+  --color-ink-500: #5f5c56;
+  --color-ink-700: #2e2c29;
+  --color-ink-800: #1c1b19;
+  --color-ink-900: #111110;
+
+  /* Acento de marca: verde profundo, sobrio, caribeño sin caer en el cliché */
+  --color-brand-50: #eef4f1;
+  --color-brand-200: #b9d2c6;
+  --color-brand-500: #1f6b52;
+  --color-brand-600: #185640;
+  --color-brand-700: #12402f;
+
+  /* Acento cálido para precios y destacados */
+  --color-gold-500: #b08442;
+  --color-gold-600: #8f6a33;
+
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Fraunces Variable', ui-serif, Georgia, serif;
+
+  --radius-card: 0.875rem;
+
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+    --surface: var(--color-bone-50);
+    --surface-raised: #ffffff;
+    --border: var(--color-bone-200);
+    --text: var(--color-ink-900);
+    --text-soft: var(--color-ink-500);
+    --text-mute: var(--color-ink-400);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme='light'])) {
+      color-scheme: dark;
+      --surface: var(--color-ink-900);
+      --surface-raised: var(--color-ink-800);
+      --border: #302e2b;
+      --text: var(--color-bone-50);
+      --text-soft: #b5b1a8;
+      --text-mute: #86827b;
+    }
+  }
+
+  :root[data-theme='dark'] {
+    color-scheme: dark;
+    --surface: var(--color-ink-900);
+    --surface-raised: var(--color-ink-800);
+    --border: #302e2b;
+    --text: var(--color-bone-50);
+    --text-soft: #b5b1a8;
+    --text-mute: #86827b;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  body {
+    background: var(--surface);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'ss01';
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1, h2, h3 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-variation-settings: 'SOFT' 0, 'WONK' 0, 'opsz' 40;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+
+  p { text-wrap: pretty; }
+
+  /* Foco visible y elegante — accesibilidad sin fealdad */
+  :focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 3px;
+    border-radius: 3px;
+  }
+
+  ::selection {
+    background: var(--color-brand-500);
+    color: #fff;
+  }
+
+  img { content-visibility: auto; }
+}
+
+@layer components {
+  .container-x {
+    width: 100%;
+    margin-inline: auto;
+    max-width: 82rem;
+    padding-inline: 1.25rem;
+  }
+  @media (min-width: 768px) {
+    .container-x { padding-inline: 2.5rem; }
+  }
+
+  /* Ojal tipográfico: la etiqueta pequeña en versalitas que marca sección */
+  .eyebrow {
+    font-size: 0.6875rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--text-mute);
+  }
+
+  .card {
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    font-weight: 550;
+    font-size: 0.9375rem;
+    padding: 0.75rem 1.375rem;
+    border-radius: 999px;
+    transition: all 0.25s var(--ease-out-soft);
+    cursor: pointer;
+  }
+
+  .btn-primary {
+    background: var(--color-brand-500);
+    color: #fff;
+  }
+  .btn-primary:hover {
+    background: var(--color-brand-600);
+    transform: translateY(-1px);
+  }
+
+  .btn-ghost {
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  .btn-ghost:hover { border-color: var(--text-mute); }
+
+  /* Revelado al entrar en viewport, sin librerías */
+  .reveal {
+    opacity: 0;
+    transform: translateY(14px);
+    transition: opacity 0.7s var(--ease-out-soft), transform 0.7s var(--ease-out-soft);
+  }
+  .reveal.is-visible { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { opacity: 1; transform: none; }
+  }
+}

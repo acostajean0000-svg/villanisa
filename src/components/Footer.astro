@@ -1,0 +1,94 @@
+---
+const year = new Date().getFullYear();
+
+const oficinas = [
+  {
+    nombre: 'Villanisa Central',
+    direccion: 'Calle General Carlos Hernández #67, Los Prados, Santo Domingo',
+    tel: '+1 (809) 328-3379',
+    telHref: '+18093283379',
+  },
+  {
+    nombre: 'Villanisa Oriental',
+    direccion: 'Av. Charles de Gaulle, Plaza David Antonio, local 2-11',
+    tel: '+1 (809) 745-5466',
+    telHref: '+18097455466',
+  },
+];
+
+const columnas = [
+  {
+    titulo: 'Comprar',
+    links: [
+      { href: '/propiedades/', label: 'Todas las propiedades' },
+      { href: '/propiedades/?tipo=apartamentos', label: 'Apartamentos' },
+      { href: '/propiedades/?tipo=casas', label: 'Casas' },
+      { href: '/propiedades/?tipo=villas', label: 'Villas' },
+    ],
+  },
+  {
+    titulo: 'Villanisa',
+    links: [
+      { href: '/nosotros/', label: 'Nosotros' },
+      { href: '/agentes/', label: 'Nuestros agentes' },
+      { href: '/contacto/', label: 'Contacto' },
+    ],
+  },
+];
+---
+
+<footer class="mt-28 border-t border-[var(--border)] bg-[var(--surface-raised)]">
+  <div class="container-x py-16">
+    <div class="grid gap-12 md:grid-cols-[1.4fr_1fr_1fr]">
+      <div>
+        <p class="font-[family-name:var(--font-display)] text-2xl">Villanisa</p>
+        <p class="mt-3 max-w-sm text-[0.95rem] leading-relaxed text-[var(--text-soft)]">
+          Más de 25 años acompañando a familias dominicanas a comprar bien.
+          Asesores, no vendedores.
+        </p>
+        <a href="https://wa.me/18093283379" class="btn btn-ghost mt-6" rel="noopener">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2Zm5.8 14.09c-.25.69-1.45 1.32-2 1.4-.51.08-1.16.11-1.87-.12-.43-.14-.99-.32-1.7-.63-3-1.29-4.95-4.3-5.1-4.5-.15-.2-1.22-1.62-1.22-3.09s.77-2.19 1.04-2.49c.27-.3.59-.37.79-.37h.57c.18 0 .43-.07.67.51.25.6.84 2.07.91 2.22.07.15.12.32.02.52-.1.2-.15.32-.3.5l-.45.52c-.15.15-.3.31-.13.61.17.3.76 1.25 1.63 2.03 1.12 1 2.06 1.31 2.36 1.46.3.15.47.12.65-.07.17-.2.74-.87.94-1.17.2-.3.4-.25.67-.15.27.1 1.73.82 2.03.97.3.15.5.22.57.35.07.12.07.72-.18 1.41Z" />
+          </svg>
+          Escríbenos por WhatsApp
+        </a>
+      </div>
+
+      {
+        columnas.map((col) => (
+          <div>
+            <p class="eyebrow">{col.titulo}</p>
+            <ul class="mt-4 space-y-2.5">
+              {col.links.map((l) => (
+                <li>
+                  <a href={l.href} class="text-[0.95rem] text-[var(--text-soft)] transition-colors hover:text-[var(--text)]">
+                    {l.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      }
+    </div>
+
+    <div class="mt-14 grid gap-8 border-t border-[var(--border)] pt-10 sm:grid-cols-2">
+      {
+        oficinas.map((o) => (
+          <div>
+            <p class="text-[0.95rem] font-medium">{o.nombre}</p>
+            <p class="mt-1.5 text-[0.9rem] leading-relaxed text-[var(--text-soft)]">{o.direccion}</p>
+            <a href={`tel:${o.telHref}`} class="mt-1.5 inline-block text-[0.9rem] text-[var(--text-soft)] hover:text-[var(--text)]">
+              {o.tel}
+            </a>
+          </div>
+        ))
+      }
+    </div>
+
+    <div class="mt-12 flex flex-col gap-3 border-t border-[var(--border)] pt-8 text-[0.82rem] text-[var(--text-mute)] sm:flex-row sm:items-center sm:justify-between">
+      <p>© {year} Villanisa. Todos los derechos reservados.</p>
+      <p>Lun–Vie 8:00–17:00 · Sáb 8:00–12:00</p>
+    </div>
+  </div>
+</footer>

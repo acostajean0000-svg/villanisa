@@ -1,0 +1,287 @@
+---
+/**
+ * Páginas de aterrizaje con la URL que la gente busca:
+ *   /apartamentos-en-venta/naco/
+ *   /villas-en-venta/punta-cana/
+ *
+ * Reemplaza a /comprar/{ciudad}/{sector}/. El cambio no es cosmético:
+ * los líderes del mercado (PlusVal rankea #1 en "apartamentos en venta en
+ * Naco") usan exactamente este patrón de tipo + operación + zona, con el
+ * título y el H1 calcados de la consulta.
+ */
+import Base from '../../layouts/Base.astro';
+import PropertyCard from '../../components/PropertyCard.astro';
+import LeadForm from '../../components/LeadForm.astro';
+import {
+  getAllProperties,
+  slugify,
+  priceOf,
+  formatPrice,
+  type PropertyListItem,
+} from '../../lib/alterestate';
+
+interface Zona {
+  tipo: string;
+  tipoPlural: string;
+  zona: string;
+  ciudad: string | null;
+  esCiudad: boolean;
+  props: PropertyListItem[];
+}
+
+/** "Apartamentos" → singular para textos en prosa. */
+const singular = (t: string) =>
+  t.replace(/^Apartamentos$/i, 'Apartamento')
+    .replace(/^Casas$/i, 'Casa')
+    .replace(/^Villas$/i, 'Villa')
+    .replace(/^Solares$/i, 'Solar')
+    .replace(/^Locales.*$/i, 'Local comercial')
+    .replace(/s$/i, '');
+
+export async function getStaticPaths() {
+  const todas = await getAllProperties();
+  const grupos = new Map<string, Zona>();
+
+  const agregar = (tipo: string, zona: string, ciudad: string | null, esCiudad: boolean, p: PropertyListItem) => {
+    const key = `${slugify(tipo)}-en-venta|${slugify(zona)}`;
+    if (!grupos.has(key)) {
+      grupos.set(key, { tipo: slugify(tipo), tipoPlural: tipo, zona, ciudad, esCiudad, props: [] });
+    }
+    grupos.get(key)!.props.push(p);
+  };
+
+  for (const p of todas) {
+    const tipo = p.category?.name;
+    if (!tipo) continue;
+    if (p.sector) agregar(tipo, p.sector, p.city ?? null, false, p);
+    if (p.city) agregar(tipo, p.city, null, true, p);
+  }
+
+  return [...grupos.entries()]
+    // Menos de 2 propiedades es una página delgada: Google la ignora o la penaliza.
+    .filter(([, g]) => g.props.length >= 2)
+    .map(([key, g]) => {
+      const [tipo, sector] = key.split('|');
+      return { params: { tipo, sector }, props: { grupo: g } };
+    });
+}
+
+const { grupo } = Astro.props as { grupo: Zona };
+const lista = [...grupo.props].sort((a, b) => (priceOf(b).amount ?? 0) - (priceOf(a).amount ?? 0));
+
+/* --------- Estadísticas reales del inventario: contenido que nadie copia --- */
+const precios = lista.map((p) => priceOf(p).amount).filter((x): x is number => Boolean(x)).sort((a, b) => a - b);
+const desde = precios[0] ?? null;
+const hasta = precios[precios.length - 1] ?? null;
+const mediana = precios.length ? precios[Math.floor(precios.length / 2)] : null;
+
+const conArea = lista.filter((p) => p.property_area && priceOf(p).amount);
+const precioM2 = conArea.length
+  ? Math.round(conArea.reduce((s, p) => s + priceOf(p).amount! / p.property_area!, 0) / conArea.length)
+  : null;
+
+const porHab = new Map<number, number>();
+lista.forEach((p) => { if (p.room) porHab.set(p.room, (porHab.get(p.room) ?? 0) + 1); });
+const habitaciones = [...porHab.entries()].sort((a, b) => a[0] - b[0]);
+
+const areas = lista.map((p) => p.property_area).filter((x): x is number => Boolean(x)).sort((a, b) => a - b);
+
+/* ------------------------------------------------------- textos y metadatos */
+const zonaCompleta = grupo.esCiudad ? grupo.zona : `${grupo.zona}, ${grupo.ciudad ?? ''}`.replace(/,\s*$/, '');
+const tipoSing = singular(grupo.tipoPlural);
+
+const h1 = `${grupo.tipoPlural} en venta en ${grupo.zona}`;
+const titulo = `${h1}${grupo.esCiudad ? '' : `, ${grupo.ciudad ?? ''}`} | Villanisa`.replace(/,\s*\|/, ' |');
+
+const metaDesc = [
+  `${lista.length} ${grupo.tipoPlural.toLowerCase()} en venta en ${zonaCompleta}`,
+  desde ? `desde ${formatPrice(desde, 'USD')}` : '',
+  precioM2 ? `Precio promedio ${formatPrice(precioM2, 'USD')}/m².` : '',
+  'Asesoría de Villanisa, 25 años en el mercado dominicano.',
+].filter(Boolean).join(' ').slice(0, 158);
+
+/* ------------------------------- zonas relacionadas: enlazado interno real - */
+const todas = await getAllProperties();
+const relacionadas = (() => {
+  const m = new Map<string, { zona: string; ciudad?: string; n: number; href: string }>();
+  for (const p of todas) {
+    const tipo = p.category?.name;
+    if (!tipo || !p.sector) continue;
+    const href = `/${slugify(tipo)}-en-venta/${slugify(p.sector)}/`;
+    if (slugify(p.sector) === slugify(grupo.zona) && slugify(tipo) === grupo.tipo) continue;
+    // Priorizamos la misma ciudad: son las que compiten por el mismo comprador
+    if (grupo.ciudad && p.city !== grupo.ciudad && !grupo.esCiudad) continue;
+    const k = href;
+    if (!m.has(k)) m.set(k, { zona: p.sector, ciudad: p.city, n: 0, href });
+    m.get(k)!.n++;
+  }
+  return [...m.values()].filter((x) => x.n >= 2).sort((a, b) => b.n - a.n).slice(0, 10);
+})();
+
+const schema = {
+  '@context': 'https://schema.org',
+  '@type': 'CollectionPage',
+  name: h1,
+  description: metaDesc,
+  url: new URL(Astro.url.pathname, Astro.site).href,
+  isPartOf: { '@id': 'https://villanisa.com.do/#organization' },
+  about: { '@type': 'Place', name: `${zonaCompleta}, República Dominicana` },
+  mainEntity: {
+    '@type': 'ItemList',
+    numberOfItems: lista.length,
+    itemListElement: lista.slice(0, 20).map((p, i) => ({
+      '@type': 'ListItem',
+      position: i + 1,
+      url: new URL(`/propiedades/${p.slug}/`, Astro.site).href,
+      name: p.name,
+    })),
+  },
+};
+
+const breadcrumbs = {
+  '@context': 'https://schema.org',
+  '@type': 'BreadcrumbList',
+  itemListElement: [
+    { '@type': 'ListItem', position: 1, name: 'Inicio', item: 'https://villanisa.com.do/' },
+    { '@type': 'ListItem', position: 2, name: 'Propiedades', item: 'https://villanisa.com.do/propiedades/' },
+    { '@type': 'ListItem', position: 3, name: h1 },
+  ],
+};
+
+const faq = {
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: [
+    {
+      '@type': 'Question',
+      name: `¿Cuánto cuesta un ${tipoSing.toLowerCase()} en ${grupo.zona}?`,
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: desde && hasta
+          ? `En nuestro inventario los precios van desde ${formatPrice(desde, 'USD')} hasta ${formatPrice(hasta, 'USD')}${mediana ? `, con una mediana de ${formatPrice(mediana, 'USD')}` : ''}.${precioM2 ? ` El promedio ronda ${formatPrice(precioM2, 'USD')} por metro cuadrado.` : ''}`
+          : `Escríbenos y te enviamos el rango de precios actualizado para ${grupo.zona}.`,
+      },
+    },
+    {
+      '@type': 'Question',
+      name: `¿Villanisa tiene ${grupo.tipoPlural.toLowerCase()} disponibles en ${grupo.zona}?`,
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: `Sí. Actualmente tenemos ${lista.length} ${lista.length === 1 ? 'propiedad' : 'propiedades'} en ${zonaCompleta}. Además manejamos cartera no publicada; un asesor puede revisarla contigo.`,
+      },
+    },
+  ],
+};
+---
+
+<Base title={titulo} description={metaDesc} schema={[schema, breadcrumbs, faq]}>
+  <section class="container-x pt-14">
+    <nav aria-label="Ruta" class="mb-5 text-[0.82rem] text-[var(--text-mute)]">
+      <a href="/" class="hover:text-[var(--text)]">Inicio</a>
+      <span class="mx-1.5">/</span>
+      <a href="/propiedades/" class="hover:text-[var(--text)]">Propiedades</a>
+      <span class="mx-1.5">/</span>
+      <span class="text-[var(--text-soft)]">{grupo.zona}</span>
+    </nav>
+
+    {!grupo.esCiudad && grupo.ciudad && <p class="eyebrow">{grupo.ciudad}</p>}
+    <h1 class="mt-3 max-w-3xl text-[clamp(2.1rem,5vw,3.4rem)] leading-[1.06]">{h1}</h1>
+
+    <p class="mt-5 max-w-2xl text-[1.05rem] leading-relaxed text-[var(--text-soft)]">
+      Villanisa tiene <strong class="font-semibold text-[var(--text)]">{lista.length} {lista.length === 1 ? 'propiedad' : 'propiedades'}</strong>
+      {' '}en {zonaCompleta}{
+        desde && hasta && desde !== hasta
+          ? <>, con precios entre {formatPrice(desde, 'USD')} y {formatPrice(hasta, 'USD')}</>
+          : desde ? <> desde {formatPrice(desde, 'USD')}</> : null
+      }. Cada una la conoce un asesor nuestro: sin listados fantasma ni precios vencidos.
+    </p>
+  </section>
+
+  <!-- Estadísticas: el bloque que casi ningún competidor tiene -->
+  {
+    (desde || precioM2 || areas.length > 0) && (
+      <section class="container-x mt-12">
+        <h2 class="text-[1.5rem]">El mercado en {grupo.zona} hoy</h2>
+        <dl class="mt-6 grid grid-cols-2 gap-x-8 gap-y-6 border-y border-[var(--border)] py-8 sm:grid-cols-4">
+          {desde && (
+            <div>
+              <dt class="eyebrow">Desde</dt>
+              <dd class="mt-1.5 font-[family-name:var(--font-display)] text-[1.5rem]">{formatPrice(desde, 'USD')}</dd>
+            </div>
+          )}
+          {mediana && (
+            <div>
+              <dt class="eyebrow">Precio mediano</dt>
+              <dd class="mt-1.5 font-[family-name:var(--font-display)] text-[1.5rem]">{formatPrice(mediana, 'USD')}</dd>
+            </div>
+          )}
+          {precioM2 && (
+            <div>
+              <dt class="eyebrow">Promedio por m²</dt>
+              <dd class="mt-1.5 font-[family-name:var(--font-display)] text-[1.5rem]">{formatPrice(precioM2, 'USD')}</dd>
+            </div>
+          )}
+          {areas.length > 0 && (
+            <div>
+              <dt class="eyebrow">Área típica</dt>
+              <dd class="mt-1.5 font-[family-name:var(--font-display)] text-[1.5rem]">
+                {areas[0]}–{areas[areas.length - 1]} m²
+              </dd>
+            </div>
+          )}
+        </dl>
+
+        {habitaciones.length > 0 && (
+          <p class="mt-5 max-w-2xl text-[0.98rem] leading-relaxed text-[var(--text-soft)]">
+            Por tamaño, la oferta se reparte así:{' '}
+            {habitaciones.map((h, i) => (
+              <>
+                {i > 0 && (i === habitaciones.length - 1 ? ' y ' : ', ')}
+                <strong class="font-medium text-[var(--text)]">{h[1]}</strong> de {h[0]} {h[0] === 1 ? 'habitación' : 'habitaciones'}
+              </>
+            ))}. Cifras calculadas sobre nuestro inventario activo, no estimaciones de mercado.
+          </p>
+        )}
+      </section>
+    )
+  }
+
+  <section class="container-x mt-16">
+    <h2 class="text-[1.5rem]">{lista.length} {lista.length === 1 ? 'propiedad disponible' : 'propiedades disponibles'}</h2>
+    <div class="mt-8 grid gap-x-7 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
+      {lista.map((p, i) => <PropertyCard property={p} eager={i < 3} />)}
+    </div>
+  </section>
+
+  {
+    relacionadas.length > 0 && (
+      <section class="container-x mt-24">
+        <h2 class="text-[1.5rem]">Otras zonas donde estamos vendiendo</h2>
+        <div class="mt-6 flex flex-wrap gap-2.5">
+          {relacionadas.map((r) => (
+            <a
+              href={r.href}
+              class="rounded-full border border-[var(--border)] px-4.5 py-2.5 text-[0.92rem] transition-colors hover:border-[var(--color-brand-500)] hover:text-[var(--color-brand-500)]"
+            >
+              {r.zona}
+              <span class="ml-1.5 text-[var(--text-mute)]">{r.n}</span>
+            </a>
+          ))}
+        </div>
+      </section>
+    )
+  }
+
+  <section class="container-x mt-24">
+    <div class="card grid gap-8 p-8 md:grid-cols-2 md:p-12">
+      <div>
+        <h2 class="text-[1.7rem] leading-tight">¿Buscas algo específico en {grupo.zona}?</h2>
+        <p class="mt-4 text-[0.98rem] leading-relaxed text-[var(--text-soft)]">
+          No todo nuestro inventario está publicado. Dinos presupuesto y necesidades,
+          y revisamos también la cartera que no sale en el sitio.
+        </p>
+      </div>
+      <LeadForm formName={`zona-${grupo.tipo}-${slugify(grupo.zona)}`} />
+    </div>
+  </section>
+</Base>

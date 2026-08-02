@@ -1,0 +1,5 @@
+# Villanisa — https://villanisa.com.do
+User-agent: *
+Allow: /
+
+Sitemap: https://villanisa.com.do/sitemap-index.xml

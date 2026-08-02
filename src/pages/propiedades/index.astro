@@ -1,0 +1,200 @@
+---
+import Base from '../../layouts/Base.astro';
+import PropertyCard from '../../components/PropertyCard.astro';
+import { getAllProperties, priceOf, slugify } from '../../lib/alterestate';
+
+const props = await getAllProperties();
+
+// Ordenar: con foto primero, luego por precio descendente. Una cuadrícula que
+// abre con fotos vacías destruye la percepción de calidad.
+const ordenadas = [...props].sort((a, b) => {
+  const foto = (x: typeof a) => (x.featured_image ? 0 : 1);
+  if (foto(a) !== foto(b)) return foto(a) - foto(b);
+  return (priceOf(b).amount ?? 0) - (priceOf(a).amount ?? 0);
+});
+
+const tipos = [...new Set(props.map((p) => p.category?.name).filter(Boolean))].sort() as string[];
+const ciudades = [...new Set(props.map((p) => p.city).filter(Boolean))].sort() as string[];
+
+// Hub de enlaces internos: desde aquí Google alcanza cada página de zona.
+const zonas = (() => {
+  const m = new Map<string, { tipo: string; zona: string; ciudad?: string; n: number; href: string }>();
+  for (const p of props) {
+    const tipo = p.category?.name;
+    if (!tipo || !p.sector) continue;
+    const href = `/${slugify(tipo)}-en-venta/${slugify(p.sector)}/`;
+    if (!m.has(href)) m.set(href, { tipo, zona: p.sector, ciudad: p.city, n: 0, href });
+    m.get(href)!.n++;
+  }
+  return [...m.values()].filter((z) => z.n >= 2).sort((a, b) => b.n - a.n);
+})();
+
+const total = props.length;
+const descripcion = `${total} propiedades en venta en República Dominicana: apartamentos, casas, villas y proyectos en planos en Santo Domingo, Punta Cana y más. Villanisa, 25 años asesorando compradores.`;
+
+const schema = {
+  '@context': 'https://schema.org',
+  '@type': 'CollectionPage',
+  name: 'Propiedades en venta',
+  description: descripcion,
+  url: 'https://villanisa.com.do/propiedades/',
+  numberOfItems: total,
+};
+---
+
+<Base
+  title="Propiedades en venta en República Dominicana"
+  description={descripcion}
+  schema={schema}
+>
+  <section class="container-x pt-14">
+    <p class="eyebrow">Inventario</p>
+    <h1 class="mt-3 max-w-3xl text-[clamp(2.2rem,5vw,3.6rem)] leading-[1.06]">
+      Propiedades en venta en República&nbsp;Dominicana
+    </h1>
+    <p class="mt-5 max-w-xl text-[1.05rem] leading-relaxed text-[var(--text-soft)]">
+      {total} propiedades verificadas por nuestro equipo. Filtra por tipo, ciudad y presupuesto.
+    </p>
+  </section>
+
+  <!-- Filtros: sin framework, puro HTML + un script de 40 líneas -->
+  <section class="container-x sticky top-[68px] z-30 mt-10 border-y border-[var(--border)] bg-[var(--surface)]/95 py-4 backdrop-blur-xl">
+    <div class="flex flex-wrap items-center gap-2.5">
+      <select id="f-tipo" aria-label="Tipo de propiedad" class="rounded-full border border-[var(--border)] bg-[var(--surface-raised)] px-4 py-2.5 text-[0.9rem]">
+        <option value="">Todos los tipos</option>
+        {tipos.map((t) => <option value={slugify(t)}>{t}</option>)}
+      </select>
+
+      <select id="f-ciudad" aria-label="Ciudad" class="rounded-full border border-[var(--border)] bg-[var(--surface-raised)] px-4 py-2.5 text-[0.9rem]">
+        <option value="">Todas las ciudades</option>
+        {ciudades.map((c) => <option value={slugify(c)}>{c}</option>)}
+      </select>
+
+      <select id="f-hab" aria-label="Habitaciones" class="rounded-full border border-[var(--border)] bg-[var(--surface-raised)] px-4 py-2.5 text-[0.9rem]">
+        <option value="">Habitaciones</option>
+        <option value="1">1+</option>
+        <option value="2">2+</option>
+        <option value="3">3+</option>
+        <option value="4">4+</option>
+      </select>
+
+      <select id="f-precio" aria-label="Presupuesto" class="rounded-full border border-[var(--border)] bg-[var(--surface-raised)] px-4 py-2.5 text-[0.9rem]">
+        <option value="">Presupuesto</option>
+        <option value="0-100000">Hasta US$100k</option>
+        <option value="100000-200000">US$100k – 200k</option>
+        <option value="200000-400000">US$200k – 400k</option>
+        <option value="400000-99999999">US$400k+</option>
+      </select>
+
+      <button id="f-reset" type="button" class="rounded-full px-3 py-2.5 text-[0.88rem] text-[var(--text-mute)] underline-offset-4 hover:underline">
+        Limpiar
+      </button>
+
+      <p id="f-count" class="ml-auto text-[0.88rem] text-[var(--text-soft)]" role="status" aria-live="polite">
+        {total} propiedades
+      </p>
+    </div>
+  </section>
+
+  <section class="container-x mt-12">
+    <div id="grid" class="grid gap-x-7 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
+      {
+        ordenadas.map((p, i) => (
+          <div
+            class="prop"
+            data-tipo={slugify(p.category?.name ?? '')}
+            data-ciudad={slugify(p.city ?? '')}
+            data-hab={p.room ?? 0}
+            data-precio={priceOf(p).amount ?? 0}
+          >
+            <PropertyCard property={p} eager={i < 3} />
+          </div>
+        ))
+      }
+    </div>
+
+    <p id="vacio" hidden class="py-24 text-center text-[var(--text-soft)]">
+      No hay propiedades con esos criterios.
+      <button id="vacio-reset" class="ml-1 underline underline-offset-4">Ver todas</button>
+    </p>
+  </section>
+
+  {
+    zonas.length > 0 && (
+      <section class="container-x mt-24">
+        <h2 class="text-[1.6rem]">Buscar por zona</h2>
+        <p class="mt-3 max-w-2xl text-[0.98rem] text-[var(--text-soft)]">
+          Cada zona tiene su propia página con precios, áreas típicas y el inventario completo.
+        </p>
+        <div class="mt-7 flex flex-wrap gap-2.5">
+          {zonas.map((z) => (
+            <a
+              href={z.href}
+              class="rounded-full border border-[var(--border)] px-4.5 py-2.5 text-[0.9rem] transition-colors hover:border-[var(--color-brand-500)] hover:text-[var(--color-brand-500)]"
+            >
+              {z.tipo} en {z.zona}
+              <span class="ml-1.5 text-[var(--text-mute)]">{z.n}</span>
+            </a>
+          ))}
+        </div>
+      </section>
+    )
+  }
+</Base>
+
+<script>
+  const $ = (s: string) => document.querySelector(s) as HTMLElement;
+  const tipo = $('#f-tipo') as HTMLSelectElement;
+  const ciudad = $('#f-ciudad') as HTMLSelectElement;
+  const hab = $('#f-hab') as HTMLSelectElement;
+  const precio = $('#f-precio') as HTMLSelectElement;
+  const count = $('#f-count');
+  const vacio = $('#vacio');
+  const items = [...document.querySelectorAll<HTMLElement>('.prop')];
+
+  function aplicar() {
+    const [min, max] = precio.value ? precio.value.split('-').map(Number) : [0, Infinity];
+    let visibles = 0;
+
+    for (const el of items) {
+      const d = el.dataset;
+      const ok =
+        (!tipo.value || d.tipo === tipo.value) &&
+        (!ciudad.value || d.ciudad === ciudad.value) &&
+        (!hab.value || Number(d.hab) >= Number(hab.value)) &&
+        (!precio.value || (Number(d.precio) >= min && Number(d.precio) <= max));
+
+      el.hidden = !ok;
+      if (ok) visibles++;
+    }
+
+    count.textContent = `${visibles} ${visibles === 1 ? 'propiedad' : 'propiedades'}`;
+    vacio.hidden = visibles > 0;
+
+    // Refleja los filtros en la URL para que el usuario pueda compartirla
+    const params = new URLSearchParams();
+    if (tipo.value) params.set('tipo', tipo.value);
+    if (ciudad.value) params.set('ciudad', ciudad.value);
+    if (hab.value) params.set('hab', hab.value);
+    if (precio.value) params.set('precio', precio.value);
+    const qs = params.toString();
+    history.replaceState(null, '', qs ? `?${qs}` : location.pathname);
+  }
+
+  function limpiar() {
+    tipo.value = ciudad.value = hab.value = precio.value = '';
+    aplicar();
+  }
+
+  [tipo, ciudad, hab, precio].forEach((el) => el.addEventListener('change', aplicar));
+  $('#f-reset').addEventListener('click', limpiar);
+  document.getElementById('vacio-reset')?.addEventListener('click', limpiar);
+
+  // Estado inicial desde la URL (permite enlazar /propiedades/?tipo=villas)
+  const p = new URLSearchParams(location.search);
+  if (p.get('tipo')) tipo.value = p.get('tipo')!;
+  if (p.get('ciudad')) ciudad.value = p.get('ciudad')!;
+  if (p.get('hab')) hab.value = p.get('hab')!;
+  if (p.get('precio')) precio.value = p.get('precio')!;
+  if ([...p.keys()].length) aplicar();
+</script>

@@ -1,0 +1,78 @@
+---
+import Base from '../layouts/Base.astro';
+import LeadForm from '../components/LeadForm.astro';
+
+const descripcion =
+  'Habla con un asesor de Villanisa. Dos oficinas en Santo Domingo, atención por WhatsApp y respuesta el mismo día.';
+
+const oficinas = [
+  {
+    nombre: 'Villanisa Central',
+    direccion: 'Calle General Carlos Hernández #67, Los Prados, Santo Domingo',
+    tel: '+1 (809) 328-3379',
+    telHref: '18093283379',
+  },
+  {
+    nombre: 'Villanisa Oriental',
+    direccion: 'Av. Charles de Gaulle, Plaza David Antonio, local 2-11',
+    tel: '+1 (809) 745-5466',
+    telHref: '18097455466',
+  },
+];
+---
+
+<Base title="Contacto" description={descripcion}>
+  <section class="container-x pt-14">
+    <p class="eyebrow">Contacto</p>
+    <h1 class="mt-3 max-w-2xl text-[clamp(2.2rem,5vw,3.4rem)] leading-[1.06]">
+      Hablemos de lo que estás buscando
+    </h1>
+  </section>
+
+  <section class="container-x mt-12 grid gap-14 lg:grid-cols-[1fr_1fr]">
+    <div>
+      <div class="card p-7 md:p-9">
+        <p class="font-[family-name:var(--font-display)] text-[1.5rem] leading-snug">
+          Escríbenos y te contactamos hoy
+        </p>
+        <LeadForm formName="contacto" />
+      </div>
+    </div>
+
+    <div>
+      <div class="space-y-9">
+        {
+          oficinas.map((o) => (
+            <div class="border-b border-[var(--border)] pb-9 last:border-0">
+              <h2 class="text-[1.3rem]">{o.nombre}</h2>
+              <p class="mt-2.5 text-[0.98rem] leading-relaxed text-[var(--text-soft)]">{o.direccion}</p>
+              <div class="mt-4 flex flex-wrap gap-2">
+                <a href={`tel:+${o.telHref}`} class="btn btn-ghost !px-4 !py-2 !text-[0.85rem]">
+                  {o.tel}
+                </a>
+                <a href={`https://wa.me/${o.telHref}`} rel="noopener" class="btn btn-ghost !px-4 !py-2 !text-[0.85rem]">
+                  WhatsApp
+                </a>
+              </div>
+            </div>
+          ))
+        }
+
+        <div>
+          <p class="eyebrow">Horario</p>
+          <p class="mt-2 text-[0.98rem] text-[var(--text-soft)]">
+            Lunes a viernes, 8:00 a.m. – 5:00 p.m.<br />
+            Sábados, 8:00 a.m. – 12:00 p.m.
+          </p>
+        </div>
+
+        <div>
+          <p class="eyebrow">Correo</p>
+          <a href="mailto:recepcion@villanisa.com.do" class="mt-2 inline-block text-[0.98rem] text-[var(--text-soft)] underline-offset-4 hover:text-[var(--text)] hover:underline">
+            recepcion@villanisa.com.do
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+</Base>

@@ -1,0 +1,136 @@
+---
+export interface Props {
+  propertyUid?: string;
+  propertyName?: string;
+  formName: string;
+  compact?: boolean;
+}
+
+const { propertyUid = '', propertyName = '', formName, compact = false } = Astro.props;
+const id = `lf-${Math.random().toString(36).slice(2, 8)}`;
+---
+
+<form class="lead-form mt-5 space-y-3" data-form-name={formName} id={id} novalidate>
+  <input type="hidden" name="property_uid" value={propertyUid} />
+  <input type="hidden" name="property_name" value={propertyName} />
+  <input type="hidden" name="form_name" value={formName} />
+  <!-- Trampa antispam: un bot la llena, una persona nunca la ve -->
+  <input type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" class="hidden" />
+
+  <div>
+    <label for={`${id}-n`} class="sr-only">Nombre completo</label>
+    <input
+      id={`${id}-n`}
+      name="full_name"
+      required
+      autocomplete="name"
+      placeholder="Nombre completo"
+      class="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[0.95rem] outline-none transition-colors placeholder:text-[var(--text-mute)] focus:border-[var(--color-brand-500)]"
+    />
+  </div>
+
+  <div class:list={[compact ? '' : 'grid gap-3 sm:grid-cols-2']}>
+    <div>
+      <label for={`${id}-e`} class="sr-only">Correo electrónico</label>
+      <input
+        id={`${id}-e`}
+        name="email"
+        type="email"
+        required
+        autocomplete="email"
+        placeholder="Correo electrónico"
+        class="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[0.95rem] outline-none transition-colors placeholder:text-[var(--text-mute)] focus:border-[var(--color-brand-500)]"
+      />
+    </div>
+    <div>
+      <label for={`${id}-t`} class="sr-only">Teléfono</label>
+      <input
+        id={`${id}-t`}
+        name="phone"
+        type="tel"
+        required
+        autocomplete="tel"
+        placeholder="Teléfono / WhatsApp"
+        class="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[0.95rem] outline-none transition-colors placeholder:text-[var(--text-mute)] focus:border-[var(--color-brand-500)]"
+      />
+    </div>
+  </div>
+
+  {
+    !compact && (
+      <div>
+        <label for={`${id}-m`} class="sr-only">Mensaje</label>
+        <textarea
+          id={`${id}-m`}
+          name="notes"
+          rows="3"
+          placeholder="¿En qué podemos ayudarte? (opcional)"
+          class="w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[0.95rem] outline-none transition-colors placeholder:text-[var(--text-mute)] focus:border-[var(--color-brand-500)]"
+        />
+      </div>
+    )
+  }
+
+  <button type="submit" class="btn btn-primary w-full">
+    <span class="lf-label">Solicitar información</span>
+  </button>
+
+  <p class="lf-msg hidden text-[0.85rem]" role="status" aria-live="polite"></p>
+
+  <p class="text-[0.75rem] leading-relaxed text-[var(--text-mute)]">
+    Al enviar aceptas que un asesor de Villanisa te contacte. No compartimos tus datos con terceros.
+  </p>
+</form>
+
+<script>
+  // Un solo manejador para todos los formularios del sitio.
+  document.querySelectorAll<HTMLFormElement>('form.lead-form').forEach((form) => {
+    const btn = form.querySelector<HTMLButtonElement>('button[type=submit]')!;
+    const label = form.querySelector<HTMLElement>('.lf-label')!;
+    const msg = form.querySelector<HTMLElement>('.lf-msg')!;
+    const original = label.textContent;
+
+    const show = (text: string, ok: boolean) => {
+      msg.textContent = text;
+      msg.classList.remove('hidden');
+      msg.style.color = ok ? 'var(--color-brand-500)' : '#d03b3b';
+    };
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!form.checkValidity()) {
+        show('Revisa los campos: nombre, correo y teléfono son necesarios.', false);
+        return;
+      }
+
+      btn.disabled = true;
+      label.textContent = 'Enviando…';
+
+      const data = Object.fromEntries(new FormData(form) as any);
+      // Atribución de marketing: sin esto no se sabe qué campaña trajo al cliente.
+      const params = new URLSearchParams(location.search);
+      for (const k of ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term']) {
+        const v = params.get(k);
+        if (v) data[k] = v;
+      }
+      data.page_url = location.href;
+
+      try {
+        const res = await fetch('/api/lead', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+        if (!res.ok) throw new Error(String(res.status));
+        form.reset();
+        show('¡Recibido! Un asesor te contacta hoy mismo.', true);
+        label.textContent = 'Enviado';
+        (window as any).dataLayer?.push({ event: 'lead_enviado', form: data.form_name });
+      } catch {
+        show('No pudimos enviar el formulario. Escríbenos por WhatsApp al 809-328-3379.', false);
+        btn.disabled = false;
+        label.textContent = original;
+      }
+    });
+  });
+</script>

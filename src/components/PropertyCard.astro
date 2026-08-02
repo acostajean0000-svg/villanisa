@@ -1,0 +1,81 @@
+---
+import {
+  formatPrice,
+  imageOf,
+  priceOf,
+  aeImage,
+  aeSrcSet,
+  type PropertyListItem,
+} from '../lib/alterestate';
+
+export interface Props {
+  property: PropertyListItem;
+  /** Las primeras tarjetas visibles no deben cargar en diferido: afectan el LCP. */
+  eager?: boolean;
+}
+
+const { property: p, eager = false } = Astro.props;
+const { amount, currency } = priceOf(p);
+const img = imageOf(p);
+const ubicacion = [p.sector, p.city].filter(Boolean).join(', ');
+
+const specs = [
+  p.room ? `${p.room} hab` : null,
+  p.bathroom ? `${p.bathroom} baños` : null,
+  p.parkinglot ? `${p.parkinglot} parqueos` : null,
+  p.property_area ? `${p.property_area} m²` : null,
+].filter(Boolean) as string[];
+---
+
+<article class="group reveal">
+  <a href={`/propiedades/${p.slug}/`} class="block">
+    <div class="relative aspect-[4/3] overflow-hidden rounded-[var(--radius-card)] bg-[var(--color-bone-200)]">
+      {
+        img ? (
+          <img
+            src={aeImage(img, 800, { height: 600, fit: 'cover' })}
+            srcset={aeSrcSet(img, [400, 640, 900, 1200], 4 / 3, 'cover')}
+            sizes="(min-width: 1024px) 30vw, (min-width: 640px) 46vw, 92vw"
+            alt={`${p.name} — ${ubicacion}`}
+            width="800"
+            height="600"
+            loading={eager ? 'eager' : 'lazy'}
+            fetchpriority={eager ? 'high' : 'auto'}
+            decoding="async"
+            class="h-full w-full object-cover transition-transform duration-700 ease-[var(--ease-out-soft)] group-hover:scale-[1.04]"
+          />
+        ) : (
+          <div class="flex h-full items-center justify-center text-[var(--text-mute)]">
+            <span class="text-sm">Sin imagen</span>
+          </div>
+        )
+      }
+
+      {
+        p.category?.name && (
+          <span class="absolute left-3 top-3 rounded-full bg-black/55 px-3 py-1 text-[0.7rem] font-medium text-white backdrop-blur-sm">
+            {p.category.name}
+          </span>
+        )
+      }
+    </div>
+
+    <div class="pt-4">
+      <p class="font-[family-name:var(--font-display)] text-[1.35rem] leading-none text-[var(--text)]">
+        {formatPrice(amount, currency)}
+      </p>
+
+      <h3 class="mt-2 text-[1rem] font-medium leading-snug">
+        {p.name}
+      </h3>
+
+      {ubicacion && <p class="mt-1 text-[0.875rem] text-[var(--text-soft)]">{ubicacion}</p>}
+
+      {
+        specs.length > 0 && (
+          <p class="mt-3 text-[0.82rem] text-[var(--text-mute)]">{specs.join('  ·  ')}</p>
+        )
+      }
+    </div>
+  </a>
+</article>

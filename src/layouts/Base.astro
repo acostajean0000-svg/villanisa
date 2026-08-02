@@ -1,0 +1,116 @@
+---
+import '../styles/global.css';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+
+export interface Props {
+  title: string;
+  description: string;
+  image?: string | null;
+  type?: 'website' | 'article';
+  noindex?: boolean;
+  schema?: Record<string, unknown> | Record<string, unknown>[];
+}
+
+const {
+  title,
+  description,
+  image = null,
+  type = 'website',
+  noindex = false,
+  schema,
+} = Astro.props;
+
+const canonical = new URL(Astro.url.pathname, Astro.site).href.replace(/(.+)\/$/, '$1/');
+const ogImage = image ? new URL(image, Astro.site).href : new URL('/og-default.jpg', Astro.site).href;
+const fullTitle = title.includes('Villanisa') ? title : `${title} | Villanisa`;
+
+// La organización se declara en todas las páginas: es lo que ata el sitio
+// a la ficha de empresa en Google.
+const orgSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'RealEstateAgent',
+  '@id': 'https://villanisa.com.do/#organization',
+  name: 'Villanisa',
+  url: 'https://villanisa.com.do',
+  telephone: '+1-809-328-3379',
+  email: 'recepcion@villanisa.com.do',
+  areaServed: { '@type': 'Country', name: 'República Dominicana' },
+  address: {
+    '@type': 'PostalAddress',
+    streetAddress: 'Calle General Carlos Hernández #67, Los Prados',
+    addressLocality: 'Santo Domingo',
+    addressCountry: 'DO',
+  },
+  sameAs: [
+    'https://www.facebook.com/VillanisaRD/',
+    'https://www.instagram.com/villanisard/',
+  ],
+};
+
+const schemas = [orgSchema, ...(Array.isArray(schema) ? schema : schema ? [schema] : [])];
+---
+
+<!doctype html>
+<html lang="es-DO">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    {noindex && <meta name="robots" content="noindex, nofollow" />}
+
+    <meta property="og:type" content={type} />
+    <meta property="og:site_name" content="Villanisa" />
+    <meta property="og:locale" content="es_DO" />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={fullTitle} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+
+    <meta name="theme-color" content="#1f6b52" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#111110" media="(prefers-color-scheme: dark)" />
+
+    <link rel="sitemap" href="/sitemap-index.xml" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+
+    <!-- Precarga del dominio de imágenes: quita ~200ms al LCP en móvil -->
+    <link rel="preconnect" href="https://secure.alterestate.com" crossorigin />
+
+    <script type="application/ld+json" set:html={JSON.stringify(schemas)} is:inline />
+  </head>
+
+  <body>
+    <a href="#contenido" class="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:m-4 focus:rounded-full focus:bg-[var(--color-brand-500)] focus:px-5 focus:py-3 focus:text-white">
+      Saltar al contenido
+    </a>
+
+    <Header />
+    <main id="contenido">
+      <slot />
+    </main>
+    <Footer />
+
+    <script is:inline>
+      // Revelado progresivo. 12 líneas en lugar de una librería de animación.
+      const io = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) {
+            if (e.isIntersecting) {
+              e.target.classList.add('is-visible');
+              io.unobserve(e.target);
+            }
+          }
+        },
+        { rootMargin: '0px 0px -8% 0px' }
+      );
+      document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+    </script>
+  </body>
+</html>
