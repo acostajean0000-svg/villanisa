@@ -43,14 +43,11 @@ export async function getOverrides(): Promise<Overrides> {
   }
 
   try {
-    const { list } = await import('@vercel/blob');
-    const { blobs } = await list({ prefix: RUTA_CONTENIDO, limit: 1, token });
-    if (!blobs.length) {
-      cache = {};
-      return cache;
-    }
-    const res = await fetch(blobs[0].url, { cache: 'no-store' });
-    cache = res.ok ? ((await res.json()) as Overrides) : {};
+    const { get } = await import('@vercel/blob');
+    // Almacén privado: se lee con el token, no por URL pública.
+    // useCache:false para que un texto recién guardado salga en este build.
+    const res = await get(RUTA_CONTENIDO, { access: 'private', token, useCache: false });
+    cache = res?.stream ? ((await new Response(res.stream).json()) as Overrides) : {};
     console.log(`[contenido] ${Object.keys(cache).length} textos propios cargados`);
   } catch (err) {
     console.warn('[contenido] no se pudo leer el almacén:', (err as Error).message);

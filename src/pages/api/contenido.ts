@@ -37,11 +37,14 @@ const noAutorizado = () =>
   });
 
 async function leer(token: string): Promise<Overrides> {
-  const { list } = await import('@vercel/blob');
-  const { blobs } = await list({ prefix: RUTA_CONTENIDO, limit: 1, token });
-  if (!blobs.length) return {};
-  const r = await fetch(blobs[0].url, { cache: 'no-store' });
-  return r.ok ? ((await r.json()) as Overrides) : {};
+  const { get } = await import('@vercel/blob');
+  try {
+    const res = await get(RUTA_CONTENIDO, { access: 'private', token, useCache: false });
+    return res?.stream ? ((await new Response(res.stream).json()) as Overrides) : {};
+  } catch {
+    // Todavía no existe el archivo: primera vez que se guarda
+    return {};
+  }
 }
 
 export const GET: APIRoute = async ({ request }) => {
@@ -93,7 +96,7 @@ export const POST: APIRoute = async ({ request }) => {
 
     const { put } = await import('@vercel/blob');
     await put(RUTA_CONTENIDO, JSON.stringify(actual, null, 1), {
-      access: 'public',
+      access: 'private',
       token,
       contentType: 'application/json',
       addRandomSuffix: false,
