@@ -99,7 +99,7 @@ Astro.response.headers.set('Cache-Control', 'no-store');
   <div id="panel" hidden>
     <!-- Indicadores -->
     <section class="container-x mt-10">
-      <div id="kpis" class="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7"></div>
+      <div id="kpis" class="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8"></div>
     </section>
 
     <!-- Salud de los datos -->
@@ -282,6 +282,8 @@ Astro.response.headers.set('Cache-Control', 'no-store');
     const sinArea = props.filter((p) => !p.property_area);
     const sinHab = props.filter((p) => !p.room && p.category?.name !== 'Solares');
     const sinDesc = props.filter((p) => (p.short_description || '').replace(/<[^>]*>/g, '').trim().length < 80);
+    // Errores de tecleo en el precio: se detectan al convertir a dólares
+    const precioImposible = props.filter((p) => enUSD(p) > 10000000);
     const nombrePobre = props.filter((p) => {
       const n = (p.name || '').trim();
       return n.length < 22 || /^(apartamento|casa|villa|propiedad)(\s+(en|de)\s+venta)?$/i.test(n);
@@ -296,11 +298,14 @@ Astro.response.headers.set('Cache-Control', 'no-store');
       tarjeta('Sin precio', num(sinPrecio.length), 'no salen en filtros', sinPrecio.length ? 'aviso' : 'ok'),
       tarjeta('Sin sector', num(sinSector.length), 'sin página de zona', sinSector.length ? 'aviso' : 'ok'),
       tarjeta('Publicadas en RD$', num(enPesos), `tasa ${tasa.toFixed(2)}`),
+      tarjeta('Precio imposible', num(precioImposible.length), 'ceros de más', precioImposible.length ? 'malo' : 'ok'),
     ].join('');
 
     $('#problemas').innerHTML = [
       bloqueProblema('Sin imagen de portada', sinFoto,
         'Una ficha sin foto prácticamente no recibe clics. Es lo primero a corregir.'),
+      bloqueProblema('Precio imposible — ceros de más', precioImposible,
+        'Convertido a dólares supera los 10 millones. Casi siempre es un error de tecleo en el CRM. Como el listado ordena por precio, estos errores se quedaban con el primer lugar de la página.'),
       bloqueProblema('Sin precio publicado', sinPrecio,
         'Quedan fuera de todos los filtros por presupuesto y no aparecen con precio en Google.'),
       bloqueProblema('Nombre genérico o demasiado corto', nombrePobre,

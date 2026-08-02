@@ -207,6 +207,21 @@ export function usdOf(p: PropertyListItem, tasa: number): number | null {
   return amount ? toUSD(amount, currency, tasa) : null;
 }
 
+/**
+ * Un precio se considera un error de carga, no una propiedad de lujo.
+ *
+ * Aparecieron fichas a RD$8,500,000,000 (unos US$146 millones) — ceros de más
+ * tecleados en el CRM. Como el listado ordena por precio, esos errores se
+ * quedaban con el primer lugar de la página. El tope es deliberadamente alto:
+ * en RD existen propiedades de varios millones de dólares, pero no de cien.
+ */
+export const TOPE_PRECIO_USD = 10_000_000;
+
+export function precioPlausible(p: PropertyListItem, tasa: number): boolean {
+  const usd = usdOf(p, tasa);
+  return usd === null || usd <= TOPE_PRECIO_USD;
+}
+
 export function priceOf(p: PropertyListItem): { amount: number | null; currency: string } {
   const amount = p.sale_price || p.rent_price || null;
   const currency = (p.sale_price ? p.currency_sale : p.currency_rent) || 'USD';

@@ -1,7 +1,7 @@
 ---
 import Base from '../../layouts/Base.astro';
 import PropertyCard from '../../components/PropertyCard.astro';
-import { getAllProperties, priceOf, slugify, getTasaDOP, usdOf } from '../../lib/alterestate';
+import { getAllProperties, priceOf, slugify, getTasaDOP, usdOf, precioPlausible } from '../../lib/alterestate';
 
 const props = await getAllProperties();
 // Buena parte del inventario está en pesos: normalizamos para ordenar y filtrar.
@@ -10,6 +10,10 @@ const tasa = await getTasaDOP();
 // Ordenar: con foto primero, luego por precio descendente. Una cuadrícula que
 // abre con fotos vacías destruye la percepción de calidad.
 const ordenadas = [...props].sort((a, b) => {
+  // Los precios imposibles van al final: siguen visibles para poder detectarlos,
+  // pero no se quedan con el primer lugar de la cuadrícula.
+  const raro = (x: typeof a) => (precioPlausible(x, tasa) ? 0 : 1);
+  if (raro(a) !== raro(b)) return raro(a) - raro(b);
   const foto = (x: typeof a) => (x.featured_image ? 0 : 1);
   if (foto(a) !== foto(b)) return foto(a) - foto(b);
   return (usdOf(b, tasa) ?? 0) - (usdOf(a, tasa) ?? 0);

@@ -2,13 +2,15 @@
 import Base from '../layouts/Base.astro';
 import PropertyCard from '../components/PropertyCard.astro';
 import LeadForm from '../components/LeadForm.astro';
-import { getAllProperties, slugify, getTasaDOP, usdOf } from '../lib/alterestate';
+import { getAllProperties, slugify, getTasaDOP, usdOf, precioPlausible } from '../lib/alterestate';
 
 const props = await getAllProperties();
 const tasa = await getTasaDOP();
 
 const destacadas = [...props]
   .filter((p) => p.featured_image)
+  // Un precio con ceros de más no puede encabezar la portada del sitio
+  .filter((p) => precioPlausible(p, tasa))
   .sort((a, b) => (usdOf(b, tasa) ?? 0) - (usdOf(a, tasa) ?? 0))
   .slice(0, 6);
 
