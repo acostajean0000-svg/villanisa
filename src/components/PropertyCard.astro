@@ -10,11 +10,13 @@ import {
 
 export interface Props {
   property: PropertyListItem;
+  /** Tasa DOP/USD para mostrar el equivalente cuando el precio va en pesos. */
+  tasa?: number;
   /** Las primeras tarjetas visibles no deben cargar en diferido: afectan el LCP. */
   eager?: boolean;
 }
 
-const { property: p, eager = false } = Astro.props;
+const { property: p, eager = false, tasa } = Astro.props;
 const { amount, currency } = priceOf(p);
 const img = imageOf(p);
 const ubicacion = [p.sector, p.city].filter(Boolean).join(', ');
@@ -64,6 +66,13 @@ const specs = [
       <p class="font-[family-name:var(--font-display)] text-[1.35rem] leading-none text-[var(--text)]">
         {formatPrice(amount, currency)}
       </p>
+      {
+        currency === 'DOP' && amount && tasa && (
+          <p class="mt-1 text-[0.78rem] text-[var(--text-mute)]">
+            ≈ {formatPrice(Math.round(amount / tasa), 'USD')}
+          </p>
+        )
+      }
 
       <h3 class="mt-2 text-[1rem] font-medium leading-snug">
         {p.name}

@@ -1,16 +1,18 @@
 ---
 import Base from '../../layouts/Base.astro';
 import PropertyCard from '../../components/PropertyCard.astro';
-import { getAllProperties, priceOf, slugify } from '../../lib/alterestate';
+import { getAllProperties, priceOf, slugify, getTasaDOP, usdOf } from '../../lib/alterestate';
 
 const props = await getAllProperties();
+// Buena parte del inventario está en pesos: normalizamos para ordenar y filtrar.
+const tasa = await getTasaDOP();
 
 // Ordenar: con foto primero, luego por precio descendente. Una cuadrícula que
 // abre con fotos vacías destruye la percepción de calidad.
 const ordenadas = [...props].sort((a, b) => {
   const foto = (x: typeof a) => (x.featured_image ? 0 : 1);
   if (foto(a) !== foto(b)) return foto(a) - foto(b);
-  return (priceOf(b).amount ?? 0) - (priceOf(a).amount ?? 0);
+  return (usdOf(b, tasa) ?? 0) - (usdOf(a, tasa) ?? 0);
 });
 
 const tipos = [...new Set(props.map((p) => p.category?.name).filter(Boolean))].sort() as string[];
@@ -105,9 +107,9 @@ const schema = {
             data-tipo={slugify(p.category?.name ?? '')}
             data-ciudad={slugify(p.city ?? '')}
             data-hab={p.room ?? 0}
-            data-precio={priceOf(p).amount ?? 0}
+            data-precio={Math.round(usdOf(p, tasa) ?? 0)}
           >
-            <PropertyCard property={p} eager={i < 3} />
+            <PropertyCard property={p} tasa={tasa} eager={i < 3} />
           </div>
         ))
       }

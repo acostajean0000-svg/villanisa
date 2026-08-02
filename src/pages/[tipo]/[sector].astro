@@ -17,6 +17,8 @@ import {
   slugify,
   priceOf,
   formatPrice,
+  getTasaDOP,
+  usdOf,
   type PropertyListItem,
 } from '../../lib/alterestate';
 
@@ -67,18 +69,23 @@ export async function getStaticPaths() {
 }
 
 const { grupo } = Astro.props as { grupo: Zona };
-const lista = [...grupo.props].sort((a, b) => (priceOf(b).amount ?? 0) - (priceOf(a).amount ?? 0));
+// Sin esto, mezclar RD$ con US$ produce rangos y promedios sin sentido.
+const tasa = await getTasaDOP();
+const lista = [...grupo.props].sort((a, b) => (usdOf(b, tasa) ?? 0) - (usdOf(a, tasa) ?? 0));
 
 /* --------- Estadísticas reales del inventario: contenido que nadie copia --- */
-const precios = lista.map((p) => priceOf(p).amount).filter((x): x is number => Boolean(x)).sort((a, b) => a - b);
+const precios = lista.map((p) => usdOf(p, tasa)).filter((x): x is number => Boolean(x)).sort((a, b) => a - b);
 const desde = precios[0] ?? null;
 const hasta = precios[precios.length - 1] ?? null;
 const mediana = precios.length ? precios[Math.floor(precios.length / 2)] : null;
 
-const conArea = lista.filter((p) => p.property_area && priceOf(p).amount);
-const precioM2 = conArea.length
-  ? Math.round(conArea.reduce((s, p) => s + priceOf(p).amount! / p.property_area!, 0) / conArea.length)
-  : null;
+// Mediana, no media: un penthouse atípico no debe torcer la referencia de la zona.
+const ratios = lista
+  .filter((p) => p.property_area && usdOf(p, tasa))
+  .map((p) => usdOf(p, tasa)! / p.property_area!)
+  .filter((r) => r > 200 && r < 10000) // descarta áreas mal cargadas
+  .sort((a, b) => a - b);
+const precioM2 = ratios.length ? Math.round(ratios[Math.floor(ratios.length / 2)]) : null;
 
 const porHab = new Map<number, number>();
 lista.forEach((p) => { if (p.room) porHab.set(p.room, (porHab.get(p.room) ?? 0) + 1); });
@@ -96,7 +103,7 @@ const titulo = `${h1}${grupo.esCiudad ? '' : `, ${grupo.ciudad ?? ''}`} | Villan
 const metaDesc = [
   `${lista.length} ${grupo.tipoPlural.toLowerCase()} en venta en ${zonaCompleta}`,
   desde ? `desde ${formatPrice(desde, 'USD')}` : '',
-  precioM2 ? `Precio promedio ${formatPrice(precioM2, 'USD')}/m².` : '',
+  precioM2 ? `Mediana ${formatPrice(precioM2, 'USD')}/m².` : '',
   'Asesoría de Villanisa, 25 años en el mercado dominicano.',
 ].filter(Boolean).join(' ').slice(0, 158);
 
@@ -158,7 +165,7 @@ const faq = {
       acceptedAnswer: {
         '@type': 'Answer',
         text: desde && hasta
-          ? `En nuestro inventario los precios van desde ${formatPrice(desde, 'USD')} hasta ${formatPrice(hasta, 'USD')}${mediana ? `, con una mediana de ${formatPrice(mediana, 'USD')}` : ''}.${precioM2 ? ` El promedio ronda ${formatPrice(precioM2, 'USD')} por metro cuadrado.` : ''}`
+          ? `En nuestro inventario los precios van desde ${formatPrice(desde, 'USD')} hasta ${formatPrice(hasta, 'USD')}${mediana ? `, con una mediana de ${formatPrice(mediana, 'USD')}` : ''}.${precioM2 ? ` La mediana ronda ${formatPrice(precioM2, 'USD')} por metro cuadrado.` : ''}`
           : `Escríbenos y te enviamos el rango de precios actualizado para ${grupo.zona}.`,
       },
     },
@@ -217,7 +224,7 @@ const faq = {
           )}
           {precioM2 && (
             <div>
-              <dt class="eyebrow">Promedio por m²</dt>
+              <dt class="eyebrow">Mediana por m²</dt>
               <dd class="mt-1.5 font-[family-name:var(--font-display)] text-[1.5rem]">{formatPrice(precioM2, 'USD')}</dd>
             </div>
           )}
@@ -239,7 +246,7 @@ const faq = {
                 {i > 0 && (i === habitaciones.length - 1 ? ' y ' : ', ')}
                 <strong class="font-medium text-[var(--text)]">{h[1]}</strong> de {h[0]} {h[0] === 1 ? 'habitación' : 'habitaciones'}
               </>
-            ))}. Cifras calculadas sobre nuestro inventario activo, no estimaciones de mercado.
+            ))}. Cifras calculadas sobre nuestro inventario activo y convertidas a dólares, no estimaciones de mercado.
           </p>
         )}
       </section>
@@ -249,7 +256,7 @@ const faq = {
   <section class="container-x mt-16">
     <h2 class="text-[1.5rem]">{lista.length} {lista.length === 1 ? 'propiedad disponible' : 'propiedades disponibles'}</h2>
     <div class="mt-8 grid gap-x-7 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
-      {lista.map((p, i) => <PropertyCard property={p} eager={i < 3} />)}
+      {lista.map((p, i) => <PropertyCard property={p} tasa={tasa} eager={i < 3} />)}
     </div>
   </section>
 

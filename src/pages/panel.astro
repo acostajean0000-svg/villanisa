@@ -31,7 +31,7 @@ import Base from '../layouts/Base.astro';
   <div id="panel" hidden>
     <!-- Indicadores -->
     <section class="container-x mt-10">
-      <div id="kpis" class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6"></div>
+      <div id="kpis" class="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7"></div>
     </section>
 
     <!-- Salud de los datos -->
@@ -98,6 +98,24 @@ import Base from '../layouts/Base.astro';
   }
 
   let props: Prop[] = [];
+  let tasa = 58;
+
+  // Más de la mitad del inventario está en pesos: sin convertir, cualquier
+  // estadística de precio es basura.
+  async function cargarTasa() {
+    try {
+      const r = await fetch('https://open.er-api.com/v6/latest/USD');
+      const j = await r.json();
+      const t = j?.rates?.DOP;
+      if (typeof t === 'number' && t > 20 && t < 200) tasa = t;
+    } catch { /* nos quedamos con el respaldo */ }
+  }
+
+  const enUSD = (p: Prop) => {
+    const monto = p.sale_price || p.rent_price || 0;
+    const moneda = (p.sale_price ? p.currency_sale : p.currency_rent) || 'USD';
+    return moneda === 'DOP' ? monto / tasa : monto;
+  };
 
   async function cargar() {
     const todas: Prop[] = [];
@@ -179,12 +197,16 @@ import Base from '../layouts/Base.astro';
 
   function pintar() {
     const total = props.length;
-    const precios = props.map((p) => p.sale_price || p.rent_price || 0).filter(Boolean).sort((a, b) => a - b);
+    const precios = props.map(enUSD).filter(Boolean).sort((a, b) => a - b);
     const mediana = precios.length ? precios[Math.floor(precios.length / 2)] : null;
-    const conArea = props.filter((p) => p.property_area && (p.sale_price || p.rent_price));
-    const m2 = conArea.length
-      ? conArea.reduce((s, p) => s + (p.sale_price || p.rent_price)! / p.property_area!, 0) / conArea.length
-      : null;
+    // Mediana y con filtro de cordura: un área mal cargada distorsiona la media.
+    const ratios = props
+      .filter((p) => p.property_area && enUSD(p))
+      .map((p) => enUSD(p) / p.property_area!)
+      .filter((r) => r > 200 && r < 10000)
+      .sort((a, b) => a - b);
+    const m2 = ratios.length ? ratios[Math.floor(ratios.length / 2)] : null;
+    const enPesos = props.filter((p) => (p.sale_price ? p.currency_sale : p.currency_rent) === 'DOP').length;
 
     const sinFoto = props.filter((p) => !p.featured_image);
     const sinPrecio = props.filter((p) => !p.sale_price && !p.rent_price);
@@ -200,11 +222,12 @@ import Base from '../layouts/Base.astro';
 
     $('#kpis').innerHTML = [
       tarjeta('Propiedades', num(total)),
-      tarjeta('Precio mediano', dinero(mediana)),
-      tarjeta('Promedio m²', dinero(m2)),
+      tarjeta('Precio mediano', dinero(mediana), 'normalizado a USD'),
+      tarjeta('Mediana por m²', dinero(m2)),
       tarjeta('Sin foto', num(sinFoto.length), 'no se pueden mostrar', sinFoto.length ? 'malo' : 'ok'),
       tarjeta('Sin precio', num(sinPrecio.length), 'no salen en filtros', sinPrecio.length ? 'aviso' : 'ok'),
       tarjeta('Sin sector', num(sinSector.length), 'sin página de zona', sinSector.length ? 'aviso' : 'ok'),
+      tarjeta('Publicadas en RD$', num(enPesos), `tasa ${tasa.toFixed(2)}`),
     ].join('');
 
     $('#problemas').innerHTML = [
@@ -290,6 +313,7 @@ import Base from '../layouts/Base.astro';
 
   (async () => {
     try {
+      await cargarTasa();
       props = await cargar();
       if (!props.length) throw new Error('sin datos');
       $('#estado').textContent =

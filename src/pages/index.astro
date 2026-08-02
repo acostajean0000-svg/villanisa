@@ -2,13 +2,14 @@
 import Base from '../layouts/Base.astro';
 import PropertyCard from '../components/PropertyCard.astro';
 import LeadForm from '../components/LeadForm.astro';
-import { getAllProperties, priceOf, slugify } from '../lib/alterestate';
+import { getAllProperties, slugify, getTasaDOP, usdOf } from '../lib/alterestate';
 
 const props = await getAllProperties();
+const tasa = await getTasaDOP();
 
 const destacadas = [...props]
   .filter((p) => p.featured_image)
-  .sort((a, b) => (priceOf(b).amount ?? 0) - (priceOf(a).amount ?? 0))
+  .sort((a, b) => (usdOf(b, tasa) ?? 0) - (usdOf(a, tasa) ?? 0))
   .slice(0, 6);
 
 // Zonas más fuertes, con la URL que la gente busca: /apartamentos-en-venta/naco/
@@ -80,7 +81,7 @@ const pilares = [
 
         <div class="mt-10 grid gap-x-7 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
           {destacadas.map((p, i) => (
-            <PropertyCard property={p} eager={i < 3} />
+            <PropertyCard property={p} tasa={tasa} eager={i < 3} />
           ))}
         </div>
       </section>

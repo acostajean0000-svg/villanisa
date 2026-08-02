@@ -169,6 +169,44 @@ export const slugify = (s: string): string =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
 
+/* ------------------------------------------------------------ monedas */
+
+/**
+ * Más de la mitad del inventario se publica en pesos dominicanos. Comparar,
+ * ordenar o promediar precios sin normalizar produce disparates: RD$11,000,000
+ * es un número mayor que US$300,000 pero vale bastante menos.
+ *
+ * Cada propiedad se SIGUE MOSTRANDO en su moneda original; la conversión es
+ * solo para ordenar, filtrar y calcular estadísticas.
+ */
+const DOP_POR_USD_RESPALDO = 58;
+let tasaCache: number | null = null;
+
+export async function getTasaDOP(): Promise<number> {
+  if (tasaCache) return tasaCache;
+  try {
+    const r = await fetch('https://open.er-api.com/v6/latest/USD');
+    const j = await r.json();
+    const t = j?.rates?.DOP;
+    // Rango de cordura: si la API devuelve algo absurdo, mejor el respaldo
+    tasaCache = typeof t === 'number' && t > 20 && t < 200 ? t : DOP_POR_USD_RESPALDO;
+  } catch {
+    tasaCache = DOP_POR_USD_RESPALDO;
+  }
+  console.log(`[alterestate] tasa DOP/USD = ${tasaCache}`);
+  return tasaCache;
+}
+
+export function toUSD(amount: number, currency: string, tasa: number): number {
+  return currency === 'DOP' ? amount / tasa : amount;
+}
+
+/** Precio de la propiedad normalizado a dólares, para comparar manzanas con manzanas. */
+export function usdOf(p: PropertyListItem, tasa: number): number | null {
+  const { amount, currency } = priceOf(p);
+  return amount ? toUSD(amount, currency, tasa) : null;
+}
+
 export function priceOf(p: PropertyListItem): { amount: number | null; currency: string } {
   const amount = p.sale_price || p.rent_price || null;
   const currency = (p.sale_price ? p.currency_sale : p.currency_rent) || 'USD';
