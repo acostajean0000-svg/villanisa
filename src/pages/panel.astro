@@ -124,6 +124,20 @@ Astro.response.headers.set('Cache-Control', 'no-store');
       </div>
     </section>
 
+    <!-- Redactor de descripciones -->
+    <section class="container-x mt-16">
+      <h2 class="text-[1.6rem]">Redactor de descripciones</h2>
+      <p class="mt-3 max-w-2xl text-[0.98rem] leading-relaxed text-[var(--text-soft)]">
+        Genera un borrador para cada propiedad sin texto, usando sus datos reales
+        y sus amenidades. <strong class="text-[var(--text)]">No es la versión final</strong>:
+        es para que el asesor edite en dos minutos en vez de escribir desde cero.
+        Añádele siempre algo que solo sepa quien vio la propiedad.
+      </p>
+      <button id="btn-desc" class="btn btn-primary mt-6">Generar borradores</button>
+      <p id="progreso-desc" class="mt-4 text-[0.9rem] text-[var(--text-mute)]"></p>
+      <div id="descripciones" class="mt-6 space-y-4"></div>
+    </section>
+
     <!-- Calidad de fotos: bajo demanda porque mide cada imagen -->
     <section class="container-x mt-16">
       <h2 class="text-[1.6rem]">Calidad de las fotos</h2>
@@ -326,6 +340,130 @@ Astro.response.headers.set('Cache-Control', 'no-store');
     $('#por-ciudad').innerHTML = barras(agrupar((p) => p.city).slice(0, 10), total);
   }
 
+  /* --------------------------------------------- borradores de descripción */
+
+  const listar = (xs: string[]) =>
+    xs.length === 1 ? xs[0] : xs.slice(0, -1).join(', ') + ' y ' + xs[xs.length - 1];
+
+  /**
+   * Compone un borrador a partir de datos estructurados.
+   *
+   * Se varían las aperturas y los cierres según la propiedad para que 101
+   * fichas no acaben con el mismo párrafo — texto calcado en masa perjudica
+   * más de lo que ayuda. Aun así, lo que de verdad posiciona y vende es la
+   * frase que añade el asesor, no la plantilla.
+   */
+  function borrador(p: any, amenidades: string[]) {
+    const tipo = (p.category?.name || 'Propiedad').replace(/s$/, '');
+    const donde = [p.sector, p.city].filter(Boolean).join(', ');
+    const i = (p.cid || 0) % 4;
+
+    const aperturas = [
+      `${tipo} en venta en ${donde}.`,
+      `Disponible en ${donde}: ${tipo.toLowerCase()} en venta.`,
+      `Te presentamos este ${tipo.toLowerCase()} ubicado en ${donde}.`,
+      `Oportunidad en ${donde}: ${tipo.toLowerCase()} en venta.`,
+    ];
+
+    const ficha = [
+      p.room ? `${p.room} ${p.room === 1 ? 'habitación' : 'habitaciones'}` : null,
+      p.bathroom ? `${p.bathroom} ${p.bathroom === 1 ? 'baño' : 'baños'}` : null,
+      p.half_bathrooms ? `${p.half_bathrooms} medio baño` : null,
+      p.parkinglot ? `${p.parkinglot} ${p.parkinglot === 1 ? 'parqueo' : 'parqueos'}` : null,
+    ].filter(Boolean) as string[];
+
+    const partes: string[] = [aperturas[i]];
+
+    if (ficha.length) {
+      partes.push(
+        `Cuenta con ${listar(ficha)}${p.property_area ? ` en ${p.property_area} m² de construcción` : ''}.`
+      );
+    } else if (p.property_area) {
+      partes.push(`Tiene ${p.property_area} m² de construcción.`);
+    }
+
+    if (p.terrain_area) partes.push(`El terreno mide ${p.terrain_area} m².`);
+    if (p.floor_level) partes.push(`Ubicado en el nivel ${p.floor_level}${p.total_floors ? ` de ${p.total_floors}` : ''}.`);
+    if (p.year_construction) partes.push(`Construido en ${p.year_construction}.`);
+
+    if (amenidades.length) {
+      partes.push(`Entre sus amenidades: ${listar(amenidades.slice(0, 8)).toLowerCase()}.`);
+    }
+
+    const cierres = [
+      `Agenda tu visita con un asesor de Villanisa y conócelo en persona.`,
+      `Escríbenos y coordinamos una visita sin compromiso.`,
+      `Un asesor de Villanisa puede mostrarte esta y otras opciones en ${p.sector || p.city || 'la zona'}.`,
+      `Contáctanos para conocer las facilidades de pago disponibles.`,
+    ];
+    partes.push(cierres[i]);
+
+    return partes.join(' ');
+  }
+
+  async function generarBorradores() {
+    const btn = $('#btn-desc') as HTMLButtonElement;
+    btn.disabled = true;
+
+    const faltan = props.filter(
+      (p) => (p.short_description || '').replace(/<[^>]*>/g, '').trim().length < 80
+    );
+    const salida: string[] = [];
+    let hechas = 0;
+
+    // De cuatro en cuatro: hay que pedir la ficha completa por las amenidades
+    for (let i = 0; i < faltan.length; i += 4) {
+      const lote = faltan.slice(i, i + 4);
+      const detalles = await Promise.all(
+        lote.map((p) =>
+          fetch(`${API}/properties/view/${encodeURIComponent(p.slug)}/`, { headers: cab })
+            .then((r) => (r.ok ? r.json() : null))
+            .catch(() => null)
+        )
+      );
+
+      lote.forEach((p, k) => {
+        const d = detalles[k] || p;
+        const am = Array.isArray(d.amenities)
+          ? d.amenities.map((a: any) => (typeof a === 'string' ? a : a?.name)).filter(Boolean)
+          : [];
+        const texto = borrador(d, am);
+        hechas++;
+        salida.push(`<details class="card p-5">
+          <summary class="cursor-pointer list-none font-medium">${p.name || p.slug}
+            <span class="ml-2 text-[0.82rem] font-normal text-[var(--text-mute)]">${[p.sector, p.city].filter(Boolean).join(', ')}</span>
+          </summary>
+          <textarea class="mt-4 w-full rounded-xl border border-[var(--border-control)] bg-[var(--surface)] p-4 text-[0.9rem] leading-relaxed" rows="5">${texto.replace(/</g, '&lt;')}</textarea>
+          <div class="mt-3 flex flex-wrap items-center gap-2">
+            <button class="btn btn-ghost copiar" type="button">Copiar</button>
+            <a class="btn btn-ghost" target="_blank" rel="noopener"
+               href="https://${DOMAIN}/propiedad/${p.slug}">Ver ficha</a>
+            <span class="text-[0.8rem] text-[var(--text-mute)]">${texto.split(' ').length} palabras</span>
+          </div>
+        </details>`);
+      });
+
+      $('#progreso-desc').textContent = `Generados ${hechas} de ${faltan.length}…`;
+    }
+
+    $('#progreso-desc').textContent =
+      `${faltan.length} borradores listos. Edítalos antes de pegarlos en AlterEstate.`;
+    $('#descripciones').innerHTML = salida.join('');
+
+    document.querySelectorAll('.copiar').forEach((b) => {
+      b.addEventListener('click', () => {
+        const ta = (b.closest('details') as HTMLElement).querySelector('textarea') as HTMLTextAreaElement;
+        navigator.clipboard.writeText(ta.value).then(() => {
+          const antes = b.textContent;
+          b.textContent = 'Copiado';
+          setTimeout(() => { b.textContent = antes; }, 1500);
+        });
+      });
+    });
+
+    btn.disabled = false;
+  }
+
   /* ------------------------------------------- resolución real de las fotos */
   function urlOriginal(url: string) {
     try {
@@ -394,6 +532,7 @@ Astro.response.headers.set('Cache-Control', 'no-store');
       $('#panel').hidden = false;
       pintar();
       $('#btn-fotos').addEventListener('click', analizarFotos);
+      $('#btn-desc').addEventListener('click', generarBorradores);
     } catch (e) {
       $('#estado').textContent =
         'No se pudo leer el inventario del CRM. Revisa la conexión e intenta de nuevo.';
