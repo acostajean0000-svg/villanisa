@@ -34,6 +34,9 @@ const orgSchema = {
   name: 'Villanisa',
   url: 'https://villanisa.com.do',
   telephone: '+1-809-328-3379',
+  // Google usa este logo en el panel de conocimiento y en resultados de marca
+  logo: 'https://villanisa.com.do/logo-villanisa@2x.webp',
+  image: 'https://villanisa.com.do/og-default.jpg',
   email: 'recepcion@villanisa.com.do',
   areaServed: { '@type': 'Country', name: 'República Dominicana' },
   address: {
@@ -69,6 +72,8 @@ const schemas = [orgSchema, ...(Array.isArray(schema) ? schema : schema ? [schem
     <meta property="og:description" content={description} />
     <meta property="og:url" content={canonical} />
     <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={fullTitle} />
     <meta name="twitter:description" content={description} />
@@ -78,7 +83,9 @@ const schemas = [orgSchema, ...(Array.isArray(schema) ? schema : schema ? [schem
     <meta name="theme-color" content="#111110" media="(prefers-color-scheme: dark)" />
 
     <link rel="sitemap" href="/sitemap-index.xml" />
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="icon" href="/icono-192.png" sizes="192x192" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
     <!-- Precarga del dominio de imágenes: quita ~200ms al LCP en móvil -->
     <link rel="preconnect" href="https://secure.alterestate.com" crossorigin />

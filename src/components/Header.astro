@@ -11,13 +11,17 @@ const path = Astro.url.pathname;
   class="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--surface)]/85 backdrop-blur-xl"
 >
   <div class="container-x flex h-[68px] items-center justify-between gap-6">
-    <a href="/" class="flex items-baseline gap-2" aria-label="Villanisa, inicio">
-      <span class="font-[family-name:var(--font-display)] text-[1.4rem] leading-none tracking-tight">
-        Villanisa
-      </span>
-      <span class="hidden text-[0.6rem] uppercase tracking-[0.18em] text-[var(--text-mute)] sm:inline">
-        Desde 1999
-      </span>
+    <a href="/" class="flex shrink-0 items-center" aria-label="Villanisa Group, inicio">
+      <img
+        src="/logo-villanisa.webp"
+        srcset="/logo-villanisa.webp 1x, /logo-villanisa@2x.webp 2x"
+        alt="Inmobiliaria Villanisa Group RD"
+        width="231"
+        height="120"
+        fetchpriority="high"
+        decoding="async"
+        class="h-9 w-auto sm:h-10"
+      />
     </a>
 
     <nav class="hidden items-center gap-1 md:flex" aria-label="Principal">
