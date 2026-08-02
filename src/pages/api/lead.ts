@@ -6,6 +6,17 @@ export const prerender = false;
 
 const CRM_URL = 'https://secure.alterestate.com/api/v1/leads/';
 
+/**
+ * Las variables sensibles de Vercel solo existen en ejecución; `import.meta.env`
+ * se resuelve en el build. Leemos las dos fuentes para que la API key del CRM
+ * funcione marcada como sensible, que es como debe estar.
+ */
+const env = (clave: string): string | undefined => {
+  const enEjecucion =
+    typeof process !== 'undefined' && process.env ? process.env[clave] : undefined;
+  return enEjecucion ?? (import.meta.env as Record<string, string | undefined>)[clave];
+};
+
 interface Payload {
   full_name?: string;
   email?: string;
@@ -46,7 +57,7 @@ export const POST: APIRoute = async ({ request }) => {
   if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(email)) return bad('Correo inválido');
   if (phone.replace(/\D/g, '').length < 7) return bad('Teléfono inválido');
 
-  const apiKey = import.meta.env.ALTERESTATE_API_KEY;
+  const apiKey = env('ALTERESTATE_API_KEY');
 
   const notas = [
     body.notes ? String(body.notes).trim() : '',

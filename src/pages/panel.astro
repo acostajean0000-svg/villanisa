@@ -20,8 +20,21 @@ export const prerender = false;
  * No es un sistema de usuarios — es una puerta con llave para una
  * herramienta interna, que es justo lo que hace falta aquí.
  */
-const USUARIO = import.meta.env.PANEL_USUARIO || 'villanisa';
-const CLAVE = import.meta.env.PANEL_CLAVE;
+/**
+ * Lee una variable de entorno tanto en ejecución como en build.
+ *
+ * Vercel expone las variables marcadas como "Sensitive" SOLO en tiempo de
+ * ejecución, mientras que `import.meta.env` se resuelve al construir. Sin
+ * esta doble lectura, marcar la clave como sensible la dejaría vacía.
+ */
+const env = (clave: string): string | undefined => {
+  const enEjecucion =
+    typeof process !== 'undefined' && process.env ? process.env[clave] : undefined;
+  return enEjecucion ?? (import.meta.env as Record<string, string | undefined>)[clave];
+};
+
+const USUARIO = env('PANEL_USUARIO') || 'villanisa';
+const CLAVE = env('PANEL_CLAVE');
 
 const pedirClave = () =>
   new Response('Acceso restringido', {
