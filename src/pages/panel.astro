@@ -1,0 +1,305 @@
+---
+/**
+ * Panel de operación — Fase 1 del sistema propio.
+ *
+ * Lee el inventario en vivo desde AlterEstate en el navegador, así que
+ * siempre muestra el estado real sin depender de un despliegue. La página
+ * servida no contiene datos: todo se calcula en el cliente.
+ *
+ * No se enlaza desde el sitio ni se indexa.
+ */
+import Base from '../layouts/Base.astro';
+---
+
+<Base
+  title="Panel de operación"
+  description="Estado del inventario y calidad de datos de Villanisa."
+  noindex={true}
+>
+  <section class="container-x pt-12">
+    <p class="eyebrow">Interno</p>
+    <h1 class="mt-3 text-[clamp(1.9rem,4vw,2.8rem)] leading-tight">Panel de operación</h1>
+    <p class="mt-4 max-w-2xl text-[1rem] leading-relaxed text-[var(--text-soft)]">
+      Estado del inventario en tiempo real, leído directamente del CRM.
+      Cada problema listado es una propiedad que hoy rinde por debajo de lo que podría.
+    </p>
+    <p id="estado" class="mt-4 text-[0.9rem] text-[var(--text-mute)]" role="status" aria-live="polite">
+      Cargando inventario…
+    </p>
+  </section>
+
+  <div id="panel" hidden>
+    <!-- Indicadores -->
+    <section class="container-x mt-10">
+      <div id="kpis" class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6"></div>
+    </section>
+
+    <!-- Salud de los datos -->
+    <section class="container-x mt-16">
+      <h2 class="text-[1.6rem]">Qué está frenando el inventario</h2>
+      <p class="mt-3 max-w-2xl text-[0.98rem] text-[var(--text-soft)]">
+        Ordenado por impacto. Corregir esto en AlterEstate se refleja en el sitio
+        en la siguiente sincronización.
+      </p>
+      <div id="problemas" class="mt-8 space-y-4"></div>
+    </section>
+
+    <!-- Distribuciones -->
+    <section class="container-x mt-16 grid gap-12 lg:grid-cols-2">
+      <div>
+        <h2 class="text-[1.4rem]">Por tipo</h2>
+        <div id="por-tipo" class="mt-6 space-y-3"></div>
+      </div>
+      <div>
+        <h2 class="text-[1.4rem]">Por ciudad</h2>
+        <div id="por-ciudad" class="mt-6 space-y-3"></div>
+      </div>
+    </section>
+
+    <!-- Calidad de fotos: bajo demanda porque mide cada imagen -->
+    <section class="container-x mt-16">
+      <h2 class="text-[1.6rem]">Calidad de las fotos</h2>
+      <p class="mt-3 max-w-2xl text-[0.98rem] text-[var(--text-soft)]">
+        Mide la resolución real del archivo original de cada portada. Las de menos
+        de 1000 px de ancho suelen venir reenviadas por WhatsApp y nunca se verán bien.
+      </p>
+      <button id="btn-fotos" class="btn btn-primary mt-6">Analizar las portadas</button>
+      <p id="progreso-fotos" class="mt-4 text-[0.9rem] text-[var(--text-mute)]"></p>
+      <div id="fotos" class="mt-6"></div>
+    </section>
+
+    <section class="container-x mt-16">
+      <p class="text-[0.85rem] text-[var(--text-mute)]">
+        Datos leídos en vivo de la API de AlterEstate. Esta página no se indexa ni se enlaza desde el sitio.
+      </p>
+    </section>
+  </div>
+</Base>
+
+<script>
+  const API = 'https://secure.alterestate.com/api/v1';
+  const DOMAIN = 'villanisainmobiliaria.com';
+  const cab = { domain: DOMAIN, Accept: 'application/json' };
+
+  const $ = (s: string) => document.querySelector(s) as HTMLElement;
+  const num = (n: number) => n.toLocaleString('es-DO');
+  const dinero = (n: number | null) =>
+    n ? 'US$' + Math.round(n).toLocaleString('en-US') : '—';
+
+  interface Prop {
+    uid: string; slug: string; name: string;
+    featured_image?: string;
+    category?: { name: string };
+    city?: string; sector?: string;
+    sale_price?: number | null; rent_price?: number | null;
+    room?: number | null; bathroom?: number | null;
+    property_area?: number | null;
+    short_description?: string;
+  }
+
+  let props: Prop[] = [];
+
+  async function cargar() {
+    const todas: Prop[] = [];
+    let url: string | null = `${API}/properties/filter/?country=149&page=1`;
+    let guard = 0;
+    while (url && guard++ < 50) {
+      const r = await fetch(url, { headers: cab });
+      if (!r.ok) break;
+      const j = await r.json();
+      todas.push(...(j.results ?? []));
+      url = j.next;
+      $('#estado').textContent = `Cargando inventario… ${todas.length} propiedades`;
+    }
+    return todas;
+  }
+
+  /* ------------------------------------------------------------ indicadores */
+  function tarjeta(k: string, v: string, nota = '', estado: 'ok' | 'aviso' | 'malo' = 'ok') {
+    const color = estado === 'malo' ? '#d03b3b' : estado === 'aviso' ? '#b8791a' : 'var(--text)';
+    return `<div class="card p-4">
+      <p class="eyebrow">${k}</p>
+      <p class="mt-2 font-[family-name:var(--font-display)] text-[1.7rem] leading-none" style="color:${color}">${v}</p>
+      ${nota ? `<p class="mt-1.5 text-[0.78rem] text-[var(--text-mute)]">${nota}</p>` : ''}
+    </div>`;
+  }
+
+  function barras(datos: [string, number][], total: number) {
+    const max = Math.max(...datos.map((d) => d[1]), 1);
+    return datos
+      .map(([etiqueta, n]) => `
+        <div>
+          <div class="flex items-baseline justify-between gap-3 text-[0.9rem]">
+            <span>${etiqueta}</span>
+            <span class="tabular-nums text-[var(--text-mute)]">${n} · ${Math.round((n / total) * 100)}%</span>
+          </div>
+          <div class="mt-1.5 h-1.5 rounded-full bg-[var(--color-bone-200)]">
+            <div class="h-full rounded-full bg-[var(--color-brand-500)]" style="width:${(n / max) * 100}%"></div>
+          </div>
+        </div>`)
+      .join('');
+  }
+
+  function agrupar(campo: (p: Prop) => string | undefined) {
+    const m = new Map<string, number>();
+    for (const p of props) {
+      const k = campo(p);
+      if (!k) continue;
+      m.set(k, (m.get(k) ?? 0) + 1);
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  }
+
+  function bloqueProblema(titulo: string, lista: Prop[], porque: string) {
+    if (!lista.length) return '';
+    const pct = Math.round((lista.length / props.length) * 100);
+    const grave = pct >= 25;
+    return `<details class="card p-5">
+      <summary class="flex cursor-pointer items-center justify-between gap-4 list-none">
+        <span class="font-medium">${titulo}</span>
+        <span class="shrink-0 rounded-full px-3 py-1 text-[0.8rem] font-semibold"
+              style="background:${grave ? '#fbeaea' : '#fdf4e3'};color:${grave ? '#a52c2c' : '#8a5a12'}">
+          ${lista.length} · ${pct}%
+        </span>
+      </summary>
+      <p class="mt-3 text-[0.9rem] leading-relaxed text-[var(--text-soft)]">${porque}</p>
+      <ul class="mt-4 max-h-72 space-y-1.5 overflow-y-auto text-[0.85rem]">
+        ${lista.slice(0, 60).map((p) => `
+          <li>
+            <a href="https://${DOMAIN}/propiedad/${p.slug}" target="_blank" rel="noopener"
+               class="text-[var(--text-soft)] underline-offset-4 hover:text-[var(--text)] hover:underline">
+              ${p.name || p.slug}
+            </a>
+            <span class="text-[var(--text-mute)]">— ${[p.sector, p.city].filter(Boolean).join(', ') || 'sin ubicación'}</span>
+          </li>`).join('')}
+      </ul>
+      ${lista.length > 60 ? `<p class="mt-3 text-[0.8rem] text-[var(--text-mute)]">…y ${lista.length - 60} más</p>` : ''}
+    </details>`;
+  }
+
+  function pintar() {
+    const total = props.length;
+    const precios = props.map((p) => p.sale_price || p.rent_price || 0).filter(Boolean).sort((a, b) => a - b);
+    const mediana = precios.length ? precios[Math.floor(precios.length / 2)] : null;
+    const conArea = props.filter((p) => p.property_area && (p.sale_price || p.rent_price));
+    const m2 = conArea.length
+      ? conArea.reduce((s, p) => s + (p.sale_price || p.rent_price)! / p.property_area!, 0) / conArea.length
+      : null;
+
+    const sinFoto = props.filter((p) => !p.featured_image);
+    const sinPrecio = props.filter((p) => !p.sale_price && !p.rent_price);
+    const sinSector = props.filter((p) => !p.sector);
+    const sinArea = props.filter((p) => !p.property_area);
+    const sinHab = props.filter((p) => !p.room && p.category?.name !== 'Solares');
+    const sinDesc = props.filter((p) => (p.short_description || '').replace(/<[^>]*>/g, '').trim().length < 80);
+    const nombrePobre = props.filter((p) => {
+      const n = (p.name || '').trim();
+      return n.length < 22 || /^(apartamento|casa|villa|propiedad)(\s+(en|de)\s+venta)?$/i.test(n);
+    });
+    const avenida = props.filter((p) => /^(aut\.?|autopista|av\.?|avenida|prolongaci[oó]n|carretera)/i.test(p.sector ?? ''));
+
+    $('#kpis').innerHTML = [
+      tarjeta('Propiedades', num(total)),
+      tarjeta('Precio mediano', dinero(mediana)),
+      tarjeta('Promedio m²', dinero(m2)),
+      tarjeta('Sin foto', num(sinFoto.length), 'no se pueden mostrar', sinFoto.length ? 'malo' : 'ok'),
+      tarjeta('Sin precio', num(sinPrecio.length), 'no salen en filtros', sinPrecio.length ? 'aviso' : 'ok'),
+      tarjeta('Sin sector', num(sinSector.length), 'sin página de zona', sinSector.length ? 'aviso' : 'ok'),
+    ].join('');
+
+    $('#problemas').innerHTML = [
+      bloqueProblema('Sin imagen de portada', sinFoto,
+        'Una ficha sin foto prácticamente no recibe clics. Es lo primero a corregir.'),
+      bloqueProblema('Sin precio publicado', sinPrecio,
+        'Quedan fuera de todos los filtros por presupuesto y no aparecen con precio en Google.'),
+      bloqueProblema('Nombre genérico o demasiado corto', nombrePobre,
+        'El sitio arma el título para Google desde los datos, pero un buen nombre ayuda en el CRM, en portales y en WhatsApp.'),
+      bloqueProblema('Sin sector asignado', sinSector,
+        'No entran en ninguna página de zona, que es donde está el tráfico de búsquedas locales.'),
+      bloqueProblema('Sector es una avenida, no un sector', avenida,
+        'Nadie busca "apartamentos en Aut. Duarte". Cambiar por el sector real convierte cada una en tráfico aprovechable.'),
+      bloqueProblema('Sin metros cuadrados', sinArea,
+        'Sin área no se puede calcular precio por m², que es como compara todo comprador informado.'),
+      bloqueProblema('Sin habitaciones', sinHab,
+        'Quedan fuera del filtro más usado del sitio.'),
+      bloqueProblema('Descripción muy corta o vacía', sinDesc,
+        'Google necesita texto propio para posicionar la ficha, y el comprador para decidir si vale la visita.'),
+    ].join('');
+
+    $('#por-tipo').innerHTML = barras(agrupar((p) => p.category?.name), total);
+    $('#por-ciudad').innerHTML = barras(agrupar((p) => p.city).slice(0, 10), total);
+  }
+
+  /* ------------------------------------------- resolución real de las fotos */
+  function urlOriginal(url: string) {
+    try {
+      const m = url.match(/^(https?:\/\/[^/]+)\/(.+)$/)!;
+      const p = JSON.parse(atob(m[2]));
+      return `${m[1]}/${btoa(JSON.stringify({ bucket: p.bucket, key: p.key }))}`;
+    } catch { return url; }
+  }
+
+  const medir = (url: string) => new Promise<number>((res) => {
+    const im = new Image();
+    im.onload = () => res(im.naturalWidth);
+    im.onerror = () => res(0);
+    im.src = url;
+    setTimeout(() => res(0), 12000);
+  });
+
+  async function analizarFotos() {
+    const btn = $('#btn-fotos') as HTMLButtonElement;
+    btn.disabled = true;
+    const conFoto = props.filter((p) => p.featured_image);
+    const bajas: { p: Prop; w: number }[] = [];
+    let hechas = 0;
+
+    // De ocho en ocho: rápido sin saturar el navegador
+    for (let i = 0; i < conFoto.length; i += 8) {
+      const lote = conFoto.slice(i, i + 8);
+      const anchos = await Promise.all(lote.map((p) => medir(urlOriginal(p.featured_image!))));
+      lote.forEach((p, k) => {
+        hechas++;
+        if (anchos[k] > 0 && anchos[k] < 1000) bajas.push({ p, w: anchos[k] });
+      });
+      $('#progreso-fotos').textContent = `Analizadas ${hechas} de ${conFoto.length}…`;
+    }
+
+    $('#progreso-fotos').textContent =
+      `${bajas.length} de ${conFoto.length} portadas están por debajo de 1000 px de ancho.`;
+
+    $('#fotos').innerHTML = bajas.length
+      ? `<div class="card overflow-hidden">
+          <table class="w-full text-[0.88rem]">
+            <thead><tr class="border-b border-[var(--border)]">
+              <th class="p-3 text-left font-medium">Propiedad</th>
+              <th class="p-3 text-left font-medium">Ubicación</th>
+              <th class="p-3 text-right font-medium">Ancho real</th>
+            </tr></thead>
+            <tbody>${bajas.sort((a, b) => a.w - b.w).map((x) => `
+              <tr class="border-b border-[var(--border)] last:border-0">
+                <td class="p-3"><a href="https://${DOMAIN}/propiedad/${x.p.slug}" target="_blank" rel="noopener" class="underline-offset-4 hover:underline">${x.p.name}</a></td>
+                <td class="p-3 text-[var(--text-soft)]">${[x.p.sector, x.p.city].filter(Boolean).join(', ')}</td>
+                <td class="p-3 text-right tabular-nums ${x.w < 800 ? 'text-[#d03b3b]' : 'text-[var(--text-soft)]'}">${x.w} px</td>
+              </tr>`).join('')}</tbody>
+          </table>
+        </div>`
+      : '<p class="text-[0.95rem] text-[var(--text-soft)]">Ninguna portada por debajo del umbral. Buen trabajo del equipo.</p>';
+    btn.disabled = false;
+  }
+
+  (async () => {
+    try {
+      props = await cargar();
+      if (!props.length) throw new Error('sin datos');
+      $('#estado').textContent =
+        `${props.length} propiedades · actualizado ${new Date().toLocaleString('es-DO')}`;
+      $('#panel').hidden = false;
+      pintar();
+      $('#btn-fotos').addEventListener('click', analizarFotos);
+    } catch (e) {
+      $('#estado').textContent =
+        'No se pudo leer el inventario del CRM. Revisa la conexión e intenta de nuevo.';
+    }
+  })();
+</script>

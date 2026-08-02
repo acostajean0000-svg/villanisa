@@ -13,8 +13,7 @@ export default defineConfig({
   }),
   integrations: [
     sitemap({
-      i18n: { defaultLocale: 'es', locales: { es: 'es-DO', en: 'en-US' } },
-      filter: (page) => !page.includes('/gracias'),
+      filter: (page) => !page.includes('/panel'),
       changefreq: 'daily',
       lastmod: new Date(),
     }),
