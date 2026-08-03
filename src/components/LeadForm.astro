@@ -2,17 +2,26 @@
 export interface Props {
   propertyUid?: string;
   propertyName?: string;
+  /** Correo o UID del asesor de la propiedad, si lo tiene. */
+  agentRef?: string;
   formName: string;
   compact?: boolean;
 }
 
-const { propertyUid = '', propertyName = '', formName, compact = false } = Astro.props;
+const {
+  propertyUid = '',
+  propertyName = '',
+  agentRef = '',
+  formName,
+  compact = false,
+} = Astro.props;
 const id = `lf-${Math.random().toString(36).slice(2, 8)}`;
 ---
 
 <form class="lead-form mt-5 space-y-3" data-form-name={formName} id={id} novalidate>
   <input type="hidden" name="property_uid" value={propertyUid} />
   <input type="hidden" name="property_name" value={propertyName} />
+  <input type="hidden" name="agent_ref" value={agentRef} />
   <input type="hidden" name="form_name" value={formName} />
   <!-- Trampa antispam: un bot la llena, una persona nunca la ve -->
   <input type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" class="hidden" />

@@ -24,6 +24,7 @@ interface Payload {
   notes?: string;
   property_uid?: string;
   property_name?: string;
+  agent_ref?: string;
   form_name?: string;
   website?: string; // honeypot
   page_url?: string;
@@ -67,14 +68,50 @@ export const POST: APIRoute = async ({ request }) => {
     .filter(Boolean)
     .join('\n');
 
+  /**
+   * A quién se le asigna el lead.
+   *
+   * Regla de AlterEstate, textual: "If neither `related` nor `round_robin` is
+   * sent, the lead is assigned to the API key owner" y "round_robin always
+   * wins over related". Las dos frases juntas obligan a elegir UNA:
+   *
+   *   - Si la propiedad tiene asesor, va a él (`related`). Conoce la
+   *     propiedad y puede responder con detalle en la primera llamada.
+   *   - Si no lo tiene, o la consulta no es de una ficha concreta, entra al
+   *     reparto por turnos del sitio (`round_robin`).
+   *
+   * Mandar los dos NO es una red de seguridad: el round robin se impondría
+   * siempre y el asesor de la propiedad no recibiría nunca su lead.
+   *
+   * Sin ninguno de los dos configurados, todo cae en el dueño de la clave.
+   * Por eso el UID del round robin es la variable que de verdad hay que
+   * poner en cuanto exista la regla.
+   */
+  const asesor = String(body.agent_ref ?? '').trim();
+  const ruletaSitio = env('ALTERESTATE_ROUND_ROBIN_UID');
+
+  const asignacion: Record<string, string> = asesor
+    ? { related: asesor }
+    : ruletaSitio
+      ? { round_robin: ruletaSitio }
+      : {};
+
+  if (!asesor && !ruletaSitio) {
+    console.warn('[lead] sin asesor ni round robin: se asignará al dueño de la clave');
+  }
+
   const lead: Record<string, unknown> = {
     full_name,
     email,
     phone,
     notes: notas,
     form_name: body.form_name ?? 'web',
-    platform: 'Sitio web',
+    // Valores que espera la API, no texto libre: 'website' y 1 = compra.
+    platform: 'website',
+    listing_type: 1,
+    ...asignacion,
     ...(body.property_uid ? { property_uid: body.property_uid } : {}),
+    ...(env('ALTERESTATE_VIA_ID') ? { via: Number(env('ALTERESTATE_VIA_ID')) } : {}),
   };
 
   for (const k of ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term']) {
@@ -91,15 +128,32 @@ export const POST: APIRoute = async ({ request }) => {
     });
   }
 
-  try {
-    const res = await fetch(CRM_URL, {
+  const enviar = (payload: Record<string, unknown>) =>
+    fetch(CRM_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Token ${apiKey}`,
       },
-      body: JSON.stringify(lead),
+      body: JSON.stringify(payload),
     });
+
+  try {
+    let res = await enviar(lead);
+
+    /**
+     * Si el asesor de la propiedad no existe como usuario del CRM —se fue de
+     * la empresa, o la ficha arrastra un correo viejo— la API rechaza el
+     * lead entero. Perder un comprador por un dato desactualizado del CRM es
+     * el peor desenlace posible, así que se reintenta sin la asignación: cae
+     * en el round robin o en el dueño de la clave, pero entra.
+     */
+    if (!res.ok && asesor) {
+      const detalle = await res.text();
+      console.warn('[lead] asignación a', asesor, 'rechazada:', detalle.slice(0, 200));
+      const { related, ...sinAsesor } = lead as Record<string, unknown> & { related?: string };
+      res = await enviar(ruletaSitio ? { ...sinAsesor, round_robin: ruletaSitio } : sinAsesor);
+    }
 
     if (!res.ok) {
       const text = await res.text();
