@@ -43,7 +43,20 @@ export const GET: APIRoute = async ({ request }) => {
   const token = env('BLOB_READ_WRITE_TOKEN');
   if (!token) return json({ ok: false, error: 'Falta el almacén (BLOB_READ_WRITE_TOKEN)' }, 503);
   try {
-    return json({ ok: true, overrides: await leer(token) });
+    /**
+     * `leer()` devuelve { datos, fiable }, no los overrides directamente.
+     * Al cambiar su firma esta mañana no actualicé el GET, así que empezó a
+     * responder `overrides: { datos: {...}, fiable: true }`.
+     *
+     * Consecuencia real en el panel: `cargarOverrides()` guardaba esa envoltura
+     * como si fuera el mapa de textos, ninguna propiedad aparecía con texto
+     * propio, y "Solo las que no tienen texto" listaba TODAS — incluidas las
+     * que el equipo ya había redactado. Un guardado desde ahí las habría
+     * sustituido por borradores automáticos.
+     */
+    const { datos, fiable } = await leer(token);
+    if (!fiable) return json({ ok: false, error: 'No se pudo leer el almacén' }, 503);
+    return json({ ok: true, overrides: datos });
   } catch (err) {
     return json({ ok: false, error: (err as Error).message }, 500);
   }
