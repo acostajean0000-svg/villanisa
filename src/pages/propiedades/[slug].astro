@@ -17,6 +17,8 @@ import {
   claveImagen,
   isForSale,
   getZonasPublicadas,
+  getTasaDOP,
+  precioPublico,
   type PropertyListItem,
 } from '../../lib/alterestate';
 import { getOverrides } from '../../lib/contenido';
@@ -83,7 +85,9 @@ const descripcionFinal = propio.descripcion
   : limpiarHTML(detail.description);
 
 const { amount, currency } = priceOf(detail);
-const precio = formatPrice(amount, currency);
+// Se necesita la tasa para juzgar si un precio en pesos es plausible.
+const tasaFicha = await getTasaDOP();
+const precio = precioPublico(detail, tasaFicha);
 const portada = imageOf(detail);
 const galeria = galleryOf(detail);
 // La portada puede o no venir dentro de la galería: unimos sin duplicar.
@@ -233,7 +237,22 @@ const breadcrumbs = {
 };
 ---
 
-<Base title={titulo} description={metaDesc} image={portada} schema={[schema, breadcrumbs]}>
+{/*
+  La imagen para compartir se pide recortada a 1200x630 en el CDN.
+
+  Antes se pasaba `portada` cruda: el original de cámara, de 2665x4000 y
+  varios megabytes, con `og:image:width/height` declarando 1200x630 a mano.
+  WhatsApp y Facebook recortaban una foto vertical a un marco horizontal —
+  normalmente dejando el techo— y descargaban el archivo entero para hacerlo.
+  Compartir una propiedad es de los gestos que más tráfico traen en este
+  mercado, y era el peor sitio para servir la imagen sin procesar.
+*/}
+<Base
+  title={titulo}
+  description={metaDesc}
+  image={aeImage(portada, 1200, { height: 630, fit: 'cover', quality: 80, format: 'jpeg' })}
+  schema={[schema, breadcrumbs]}
+>
   <article>
     <!-- Galería -->
     <section class="container-x pt-6">

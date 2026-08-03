@@ -267,6 +267,28 @@ export function formatPrice(amount: number | null, currency = 'USD'): string {
   return `${symbol}${amount.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 }
 
+/**
+ * Precio para mostrar al público.
+ *
+ * Hay once fichas con precios de venta imposibles: apartamentos a US$119,
+ * un terreno a US$145, varias a US$950. Son rentas mensuales o precios por
+ * metro cuadrado tecleados en el campo de venta del CRM.
+ *
+ * El filtro ya los excluía de las estadísticas de zona y del orden de la
+ * portada, pero seguían visibles en su propia ficha y en las tarjetas. Un
+ * apartamento anunciado en US$119 no genera una consulta: genera desconfianza
+ * sobre las otras 173. Se muestran como "Precio a consultar" —que es la
+ * verdad, el precio real no se sabe— y el panel los reporta para que se
+ * corrijan en AlterEstate, que es donde se arreglan de raíz.
+ */
+export function precioPublico(p: PropertyListItem, tasa: number): string {
+  const { amount, currency } = priceOf(p);
+  if (!amount) return 'Precio a consultar';
+  const usd = toUSD(amount, currency, tasa);
+  if (usd < SUELO_PRECIO_USD || usd > TOPE_PRECIO_USD) return 'Precio a consultar';
+  return formatPrice(amount, currency);
+}
+
 /** Imagen destacada con respaldo a la primera de la galería. */
 export function imageOf(p: PropertyDetail | PropertyListItem): string | null {
   if (p.featured_image) return p.featured_image;

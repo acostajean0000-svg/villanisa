@@ -1,6 +1,7 @@
 ---
 import {
   formatPrice,
+  precioPublico,
   imageOf,
   priceOf,
   aeImage,
@@ -64,10 +65,10 @@ const specs = [
 
     <div class="pt-4">
       <p class="font-[family-name:var(--font-display)] text-[1.35rem] leading-none text-[var(--text)]">
-        {formatPrice(amount, currency)}
+        {tasa ? precioPublico(p, tasa) : formatPrice(amount, currency)}
       </p>
       {
-        currency === 'DOP' && amount && tasa && (
+        currency === 'DOP' && amount && tasa && precioPublico(p, tasa) !== 'Precio a consultar' && (
           <p class="mt-1 text-[0.78rem] text-[var(--text-mute)]">
             ≈ {formatPrice(Math.round(amount / tasa), 'USD')}
           </p>
