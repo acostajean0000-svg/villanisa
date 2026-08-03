@@ -6,6 +6,16 @@ const agentes = await getAgents();
 
 const descripcion =
   'Conoce al equipo de Villanisa: asesores inmobiliarios con años de experiencia en el mercado dominicano, listos para acompañarte en tu compra.';
+
+/**
+ * El CRM guarda los teléfonos sin formato ("8098298283"). Mientras el botón
+ * decía "WhatsApp" eso quedaba escondido en el enlace; ahora que mostramos el
+ * número, un bloque de diez dígitos seguidos se lee mal y no invita a marcar.
+ */
+const formatearTel = (raw: string) => {
+  const d = raw.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
+  return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : raw.trim();
+};
 ---
 
 <Base title="Nuestros agentes" description={descripcion}>
@@ -53,8 +63,8 @@ const descripcion =
               <div class="mt-4 flex flex-wrap gap-2">
                 {/* WhatsApp retirado hasta que exista el reparto por turnos. */}
                 {a.phone && (
-                  <a href={`tel:${a.phone.replace(/[^\d+]/g, '')}`} class="btn btn-ghost !px-4 !py-2 !text-[0.85rem]">
-                    {a.phone}
+                  <a href={`tel:+1${a.phone.replace(/\D/g, '').replace(/^1/, '')}`} class="btn btn-ghost !px-4 !py-2 !text-[0.85rem]">
+                    {formatearTel(a.phone)}
                   </a>
                 )}
                 {a.email && (
