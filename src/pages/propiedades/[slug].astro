@@ -364,13 +364,18 @@ const breadcrumbs = {
             formName="ficha-propiedad"
           />
 
-          <a
-            href={`https://wa.me/18093283379?text=${encodeURIComponent(`Hola, me interesa: ${detail.name} (${precio})`)}`}
-            class="btn btn-ghost mt-3 w-full"
-            rel="noopener"
-          >
-            Preguntar por WhatsApp
-          </a>
+          {/*
+            WhatsApp retirado a propósito, no por descuido.
+
+            Un enlace a wa.me abre una conversación que no pasa por ningún
+            sistema: no queda registrada, no se asigna a nadie y no se puede
+            medir. Con un solo número, además, todo cae en el mismo teléfono.
+            Se reactivará cuando exista el reparto por turnos (round robin),
+            de forma que cada clic quede registrado y asignado.
+
+            Mientras tanto el formulario es la única vía desde la ficha, y esa
+            sí deja rastro.
+          */}
         </div>
       </aside>
     </section>

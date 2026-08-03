@@ -3,7 +3,7 @@ import Base from '../layouts/Base.astro';
 import LeadForm from '../components/LeadForm.astro';
 
 const descripcion =
-  'Habla con un asesor de Villanisa. Dos oficinas en Santo Domingo, atención por WhatsApp y respuesta el mismo día.';
+  'Habla con un asesor de Villanisa. Dos oficinas en Santo Domingo, atención telefónica y respuesta el mismo día.';
 
 const oficinas = [
   {
@@ -50,9 +50,7 @@ const oficinas = [
                 <a href={`tel:+${o.telHref}`} class="btn btn-ghost !px-4 !py-2 !text-[0.85rem]">
                   {o.tel}
                 </a>
-                <a href={`https://wa.me/${o.telHref}`} rel="noopener" class="btn btn-ghost !px-4 !py-2 !text-[0.85rem]">
-                  WhatsApp
-                </a>
+                {/* WhatsApp retirado hasta que exista el reparto por turnos. */}
               </div>
             </div>
           ))

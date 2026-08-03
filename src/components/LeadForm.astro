@@ -127,7 +127,7 @@ const id = `lf-${Math.random().toString(36).slice(2, 8)}`;
         label.textContent = 'Enviado';
         (window as any).dataLayer?.push({ event: 'lead_enviado', form: data.form_name });
       } catch {
-        show('No pudimos enviar el formulario. Escríbenos por WhatsApp al 809-328-3379.', false);
+        show('No pudimos enviar el formulario. Llámanos al 809-328-3379 y te atendemos.', false);
         btn.disabled = false;
         label.textContent = original;
       }

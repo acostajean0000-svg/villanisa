@@ -51,9 +51,10 @@ const descripcion =
                 />
               )}
               <div class="mt-4 flex flex-wrap gap-2">
+                {/* WhatsApp retirado hasta que exista el reparto por turnos. */}
                 {a.phone && (
-                  <a href={`https://wa.me/${a.phone.replace(/\D/g, '')}`} rel="noopener" class="btn btn-ghost !px-4 !py-2 !text-[0.85rem]">
-                    WhatsApp
+                  <a href={`tel:${a.phone.replace(/[^\d+]/g, '')}`} class="btn btn-ghost !px-4 !py-2 !text-[0.85rem]">
+                    {a.phone}
                   </a>
                 )}
                 {a.email && (
