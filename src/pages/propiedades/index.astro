@@ -1,7 +1,7 @@
 ---
 import Base from '../../layouts/Base.astro';
 import PropertyCard from '../../components/PropertyCard.astro';
-import { getAllProperties, priceOf, slugify, getTasaDOP, usdOf, precioPlausible } from '../../lib/alterestate';
+import { getAllProperties, priceOf, slugify, getTasaDOP, usdOf, precioPlausible, isForSale } from '../../lib/alterestate';
 
 const props = await getAllProperties();
 // Buena parte del inventario está en pesos: normalizamos para ordenar y filtrar.
@@ -23,17 +23,32 @@ const tipos = [...new Set(props.map((p) => p.category?.name).filter(Boolean))].s
 const ciudades = [...new Set(props.map((p) => p.city).filter(Boolean))].sort() as string[];
 
 // Hub de enlaces internos: desde aquí Google alcanza cada página de zona.
-const zonas = (() => {
+/**
+ * Se enlazan sector Y ciudad.
+ *
+ * Antes solo se construían enlaces desde `p.sector`, pero las páginas de
+ * ciudad también se generaban. Resultado: doce páginas existían y ninguna
+ * recibía un solo enlace del sitio — entre ellas
+ * /apartamentos-en-venta/santo-domingo-d-n/ con 58 propiedades, que es la
+ * consulta cabecera del mercado. Sin enlaces internos no reciben ni autoridad
+ * ni contexto de anclaje.
+ */
+const construirZonas = (campo: 'sector' | 'city') => {
   const m = new Map<string, { tipo: string; zona: string; ciudad?: string; n: number; href: string }>();
   for (const p of props) {
     const tipo = p.category?.name;
-    if (!tipo || !p.sector) continue;
-    const href = `/${slugify(tipo)}-en-venta/${slugify(p.sector)}/`;
-    if (!m.has(href)) m.set(href, { tipo, zona: p.sector, ciudad: p.city, n: 0, href });
+    const zona = p[campo];
+    if (!tipo || !zona || !isForSale(p)) continue;
+    if (campo === 'city' && slugify(zona) === slugify(p.sector ?? '')) continue;
+    const href = `/${slugify(tipo)}-en-venta/${slugify(zona)}/`;
+    if (!m.has(href)) m.set(href, { tipo, zona, ciudad: campo === 'sector' ? p.city : undefined, n: 0, href });
     m.get(href)!.n++;
   }
   return [...m.values()].filter((z) => z.n >= 2).sort((a, b) => b.n - a.n);
-})();
+};
+
+const zonas = construirZonas('sector');
+const ciudades_zonas = construirZonas('city');
 
 const total = props.length;
 const descripcion = `${total} propiedades en venta en República Dominicana: apartamentos, casas, villas y proyectos en planos en Santo Domingo, Punta Cana y más. Villanisa, 25 años asesorando compradores.`;
@@ -111,7 +126,7 @@ const schema = {
             data-tipo={slugify(p.category?.name ?? '')}
             data-ciudad={slugify(p.city ?? '')}
             data-hab={p.room ?? 0}
-            data-precio={Math.round(usdOf(p, tasa) ?? 0)}
+            data-precio={usdOf(p, tasa) ? Math.round(usdOf(p, tasa)!) : ''}
           >
             <PropertyCard property={p} tasa={tasa} eager={i < 3} />
           </div>
@@ -124,6 +139,28 @@ const schema = {
       <button id="vacio-reset" class="ml-1 underline underline-offset-4">Ver todas</button>
     </p>
   </section>
+
+  {
+    ciudades_zonas.length > 0 && (
+      <section class="container-x mt-24">
+        <h2 class="text-[1.6rem]">Buscar por ciudad</h2>
+        <p class="mt-3 max-w-2xl text-[0.98rem] text-[var(--text-soft)]">
+          El inventario completo de cada ciudad, con precios de referencia y áreas típicas.
+        </p>
+        <div class="mt-7 flex flex-wrap gap-2.5">
+          {ciudades_zonas.map((z) => (
+            <a
+              href={z.href}
+              class="rounded-full border border-[var(--border)] px-4.5 py-2.5 text-[0.9rem] transition-colors hover:border-[var(--color-brand-500)] hover:text-[var(--color-brand-500)]"
+            >
+              {z.tipo} en {z.zona}
+              <span class="ml-1.5 text-[var(--text-mute)]">{z.n}</span>
+            </a>
+          ))}
+        </div>
+      </section>
+    )
+  }
 
   {
     zonas.length > 0 && (
@@ -164,11 +201,15 @@ const schema = {
 
     for (const el of items) {
       const d = el.dataset;
+      // Sin precio (cadena vacía) queda fuera de cualquier tramo: antes valía
+      // cero y se colaba en "Hasta US$100k" — el panel incluso afirmaba lo
+      // contrario, que esas fichas no salían en filtros.
+      const p = d.precio === '' || d.precio == null ? null : Number(d.precio);
       const ok =
         (!tipo.value || d.tipo === tipo.value) &&
         (!ciudad.value || d.ciudad === ciudad.value) &&
         (!hab.value || Number(d.hab) >= Number(hab.value)) &&
-        (!precio.value || (Number(d.precio) >= min && Number(d.precio) <= max));
+        (!precio.value || (p !== null && p >= min && p <= max));
 
       el.hidden = !ok;
       if (ok) visibles++;

@@ -14,6 +14,9 @@ import {
   aeImage,
   slugify,
   aeSrcSet,
+  claveImagen,
+  isForSale,
+  getZonasPublicadas,
   type PropertyListItem,
 } from '../../lib/alterestate';
 import { getOverrides } from '../../lib/contenido';
@@ -44,7 +47,21 @@ const precio = formatPrice(amount, currency);
 const portada = imageOf(detail);
 const galeria = galleryOf(detail);
 // La portada puede o no venir dentro de la galería: unimos sin duplicar.
-const fotos = [...new Set([imageOf(detail), ...galeria].filter(Boolean) as string[])];
+// Dedupe por la key del bucket, no por la URL: la portada llega por un CDN y
+// la misma foto dentro de la galería por otro, así que como cadenas nunca
+// coincidían y el visor abría con la primera imagen repetida.
+const fotos = (() => {
+  const vistas = new Set<string>();
+  const out: string[] = [];
+  for (const u of [imageOf(detail), ...galeria]) {
+    if (!u) continue;
+    const k = claveImagen(u);
+    if (vistas.has(k)) continue;
+    vistas.add(k);
+    out.push(u);
+  }
+  return out;
+})();
 const amenidades = namesOf(detail.amenities);
 const agente = detail.agents?.[0];
 const ubicacion = [detail.sector, detail.city].filter(Boolean).join(', ');
@@ -62,20 +79,46 @@ const especificaciones = [
   detail.property_area ? `${detail.property_area} m²` : null,
 ].filter(Boolean).join(', ');
 
-const base = `${tipo.replace(/s$/, '')} en venta en ${ubicacion}`;
-// Google recorta alrededor de los 60 caracteres y el layout añade " | Villanisa".
-const tituloSEO = base.length > 46 ? base : [base, especificaciones].filter(Boolean).join(' — ');
+const enVenta = isForSale(detail as PropertyListItem);
+const operacion = enVenta ? 'en venta' : 'en alquiler';
+const base = `${tipo.replace(/s$/, '')} ${operacion} en ${ubicacion}`;
 
-const nombreDelEquipo = propio.titulo || detail.name;
-const nombreGenerico = /^(apartamento|casa|villa|propiedad)(\s+(en|de)\s+venta)?$/i.test((nombreDelEquipo || '').trim());
-const h1 = !nombreGenerico && (nombreDelEquipo || '').trim().length > 22 ? nombreDelEquipo : tituloSEO;
+/**
+ * Las especificaciones se añaden SIEMPRE, no solo cuando sobra espacio.
+ *
+ * La versión anterior las omitía si `base` pasaba de 46 caracteres, para no
+ * exceder el corte visual de Google. El efecto real fue peor que el problema
+ * que evitaba: 23 de cada 60 fichas acabaron compartiendo título exacto con
+ * otra —cinco propiedades distintas como "Apartamento en venta en Aut.
+ * Duarte, Santo Domingo Oeste"—, compitiendo entre sí por la misma consulta.
+ * Un título recortado en pantalla sigue siendo único para el índice.
+ */
+const tituloSEO = [base, especificaciones].filter(Boolean).join(' — ');
+
+/** El CRM trae emoji, comillas y adornos: fuera del H1. */
+const limpiarNombre = (s: string) =>
+  s
+    .replace(/[\p{Extended_Pictographic}\u{FE0F}\u{20E3}]/gu, '')
+    .replace(/["""'']/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const nombreDelEquipo = limpiarNombre(propio.titulo || detail.name || '');
+const nombreGenerico = /^(apartamento|casa|villa|propiedad)(\s+(en|de)\s+(venta|alquiler))?$/i.test(nombreDelEquipo);
+const h1 = !nombreGenerico && nombreDelEquipo.length > 22 ? nombreDelEquipo : tituloSEO;
 
 const titulo = tituloSEO;
 
 // Enlace a la página de zona: cierra el circuito de enlazado interno
-const zonaHref = detail.sector && detail.category?.name
-  ? `/${slugify(detail.category.name)}-en-venta/${slugify(detail.sector)}/`
-  : null;
+// Solo si la página de zona existe de verdad: se generan con 2+ propiedades
+// en venta, así que enlazar a ciegas publicaba enlaces visibles a un 404 y una
+// miga de pan estructurada rota.
+const zonasQueExisten = await getZonasPublicadas();
+const zonaHref = (() => {
+  if (!enVenta || !detail.sector || !detail.category?.name) return null;
+  const href = `/${slugify(detail.category.name)}-en-venta/${slugify(detail.sector)}/`;
+  return zonasQueExisten.has(href) ? href : null;
+})();
 const descripcionPlana = (propio.descripcion || detail.description || detail.short_description || '')
   .replace(/<[^>]*>/g, ' ')
   .replace(/\s+/g, ' ')

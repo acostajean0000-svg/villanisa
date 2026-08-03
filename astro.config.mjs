@@ -9,7 +9,12 @@ export default defineConfig({
   site: 'https://villanisa.com.do',
   output: 'static',
   adapter: vercel({
-    imageService: true,
+    // Desactivado a propósito. Activarlo publica /_vercel/image, y con el
+    // remotePatterns de abajo aceptaba CUALQUIER origen https: se comprobó
+    // que villanisa.com.do servía imágenes de terceros, facturadas a esta
+    // cuenta. El sitio no usa <Image> de Astro: todas las fotos pasan por
+    // aeImage() contra el CDN de AlterEstate.
+    imageService: false,
     webAnalytics: { enabled: true },
   }),
   integrations: [
@@ -24,10 +29,8 @@ export default defineConfig({
   redirects: redirecciones,
 
   vite: { plugins: [tailwindcss()] },
-  image: {
-    domains: ['secure.alterestate.com', 'alterestate.s3.amazonaws.com'],
-    remotePatterns: [{ protocol: 'https' }],
-  },
+  // Sin `image`: no se optimiza ninguna imagen en el servidor de Vercel,
+  // así que no hay lista de dominios que mantener ni proxy que exponer.
   prefetch: { prefetchAll: true, defaultStrategy: 'viewport' },
   build: { inlineStylesheets: 'auto' },
 });

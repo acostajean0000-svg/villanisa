@@ -19,6 +19,8 @@ import {
   formatPrice,
   getTasaDOP,
   usdOf,
+  isForSale,
+  precioParaEstadistica,
   type PropertyListItem,
 } from '../../lib/alterestate';
 
@@ -54,9 +56,15 @@ export async function getStaticPaths() {
 
   for (const p of todas) {
     const tipo = p.category?.name;
-    if (!tipo) continue;
+    // Estas páginas dicen "en venta" en la URL, en el título y en el schema.
+    // Un alquiler aquí es una promesa falsa: el visitante llega buscando
+    // comprar y encuentra una renta mensual presentada como precio.
+    if (!tipo || !isForSale(p)) continue;
     if (p.sector) agregar(tipo, p.sector, p.city ?? null, false, p);
-    if (p.city) agregar(tipo, p.city, null, true, p);
+    // Cuando ciudad y sector coinciden (Punta Cana/Punta Cana) la propiedad
+    // caía dos veces en el mismo grupo: la página la mostraba duplicada y el
+    // filtro de "mínimo 2" lo pasaba una sola propiedad contada dos veces.
+    if (p.city && slugify(p.city) !== slugify(p.sector ?? '')) agregar(tipo, p.city, null, true, p);
   }
 
   return [...grupos.entries()]
@@ -74,15 +82,20 @@ const tasa = await getTasaDOP();
 const lista = [...grupo.props].sort((a, b) => (usdOf(b, tasa) ?? 0) - (usdOf(a, tasa) ?? 0));
 
 /* --------- Estadísticas reales del inventario: contenido que nadie copia --- */
-const precios = lista.map((p) => usdOf(p, tasa)).filter((x): x is number => Boolean(x)).sort((a, b) => a - b);
+// Solo precios de venta y creíbles. Sin este filtro la página publicaba
+// "apartamentos desde US$119" — una renta mensual colada en el rango.
+const precios = lista
+  .map((p) => precioParaEstadistica(p, tasa))
+  .filter((x): x is number => x !== null)
+  .sort((a, b) => a - b);
 const desde = precios[0] ?? null;
 const hasta = precios[precios.length - 1] ?? null;
 const mediana = precios.length ? precios[Math.floor(precios.length / 2)] : null;
 
 // Mediana, no media: un penthouse atípico no debe torcer la referencia de la zona.
 const ratios = lista
-  .filter((p) => p.property_area && usdOf(p, tasa))
-  .map((p) => usdOf(p, tasa)! / p.property_area!)
+  .filter((p) => (p.property_area ?? 0) > 0 && precioParaEstadistica(p, tasa) !== null)
+  .map((p) => precioParaEstadistica(p, tasa)! / p.property_area!)
   .filter((r) => r > 200 && r < 10000) // descarta áreas mal cargadas
   .sort((a, b) => a - b);
 const precioM2 = ratios.length ? Math.round(ratios[Math.floor(ratios.length / 2)]) : null;
@@ -91,7 +104,12 @@ const porHab = new Map<number, number>();
 lista.forEach((p) => { if (p.room) porHab.set(p.room, (porHab.get(p.room) ?? 0) + 1); });
 const habitaciones = [...porHab.entries()].sort((a, b) => a[0] - b[0]);
 
-const areas = lista.map((p) => p.property_area).filter((x): x is number => Boolean(x)).sort((a, b) => a - b);
+// Un área negativa o cero es un error de carga, no un estudio pequeño.
+// La tarjeta de "área típica" llegó a mostrar "-89–854 m²".
+const areas = lista
+  .map((p) => p.property_area)
+  .filter((x): x is number => typeof x === 'number' && x > 0 && x < 5000)
+  .sort((a, b) => a - b);
 
 /* ------------------------------------------------------- textos y metadatos */
 const zonaCompleta = grupo.esCiudad ? grupo.zona : `${grupo.zona}, ${grupo.ciudad ?? ''}`.replace(/,\s*$/, '');

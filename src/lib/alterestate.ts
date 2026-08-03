@@ -217,9 +217,29 @@ export function usdOf(p: PropertyListItem, tasa: number): number | null {
  */
 export const TOPE_PRECIO_USD = 10_000_000;
 
+/**
+ * Y el suelo, que faltaba. El tope evitaba los RD$8,500,000,000, pero por
+ * abajo se colaban rentas mensuales y precios por metro cuadrado cargados en
+ * el campo de venta: la página de zona llegó a anunciar "apartamentos desde
+ * US$119". En RD no existe vivienda en venta por menos de US$10.000.
+ */
+export const SUELO_PRECIO_USD = 10_000;
+
 export function precioPlausible(p: PropertyListItem, tasa: number): boolean {
   const usd = usdOf(p, tasa);
-  return usd === null || usd <= TOPE_PRECIO_USD;
+  return usd === null || (usd >= SUELO_PRECIO_USD && usd <= TOPE_PRECIO_USD);
+}
+
+/**
+ * Un precio sirve para calcular estadísticas de zona solo si es de venta y es
+ * creíble. `precioPlausible` acepta null (una ficha sin precio es válida y se
+ * muestra); una estadística, no.
+ */
+export function precioParaEstadistica(p: PropertyListItem, tasa: number): number | null {
+  if (!isForSale(p)) return null;
+  const usd = usdOf(p, tasa);
+  if (usd === null || usd < SUELO_PRECIO_USD || usd > TOPE_PRECIO_USD) return null;
+  return usd;
 }
 
 export function priceOf(p: PropertyListItem): { amount: number | null; currency: string } {
@@ -266,6 +286,52 @@ export function galleryOf(p: PropertyDetail): string[] {
  * El original completo vive en S3, así que no estamos ampliando una miniatura:
  * estamos pidiendo un recorte nuevo desde la fuente.
  */
+/** Host del image handler. Es el único que sabe transformar. */
+const CDN_TRANSFORMA = 'https://d2kflbb1pmooh4.cloudfront.net';
+
+/**
+ * AlterEstate entrega las fotos en DOS formatos distintos según de dónde vengan:
+ *
+ *   galería  → https://d2kflbb1pmooh4…/<payload base64>   (image handler)
+ *   portada  → https://d2p0bx8wfdkjkb…/static/properties/…/IMG_1982.jpeg
+ *
+ * Durante semanas el código solo entendió el primero: con el segundo, atob()
+ * lanzaba excepción, el catch devolvía la URL intacta y el srcset acababa
+ * repitiendo tres veces el original de cámara (2665x4000). Es decir, la foto
+ * principal de cada ficha y las 174 tarjetas del listado se servían sin tocar.
+ *
+ * Esta función normaliza ambas formas al par {bucket, key} que necesita el
+ * image handler. La ruta estática ES la key del bucket, así que basta con
+ * envolverla.
+ */
+function fuenteDe(url: string): { bucket: string; key: string } | null {
+  const m = url.match(/^https?:\/\/[^/]+\/(.+)$/);
+  if (!m) return null;
+  const resto = m[1];
+
+  try {
+    const payload = JSON.parse(atob(resto));
+    if (payload?.bucket && payload?.key) return { bucket: payload.bucket, key: payload.key };
+  } catch {
+    /* no es un payload base64: probamos la otra forma */
+  }
+
+  const ruta = decodeURIComponent(resto.split('?')[0]);
+  if (ruta.startsWith('static/')) return { bucket: 'alterestate', key: ruta };
+
+  return null;
+}
+
+/**
+ * Identidad de una foto, independiente del CDN por el que llegue.
+ * La misma imagen puede venir como URL cruda (portada) y como payload
+ * (galería): comparar cadenas no las une, comparar keys sí.
+ */
+export function claveImagen(url: string | null | undefined): string {
+  if (!url) return '';
+  return fuenteDe(url)?.key ?? url;
+}
+
 export function aeImage(
   url: string | null | undefined,
   width: number,
@@ -281,16 +347,13 @@ export function aeImage(
   if (!url) return '';
   const { height, quality = 82, format = 'webp', fit = 'inside' } = opts;
 
-  const m = url.match(/^(https?:\/\/[^/]+)\/(.+)$/);
-  if (!m) return url;
+  const fuente = fuenteDe(url);
+  if (!fuente) return url;
 
   try {
-    const payload = JSON.parse(atob(m[2]));
-    if (!payload?.bucket || !payload?.key) return url;
-
     const next = {
-      bucket: payload.bucket,
-      key: payload.key,
+      bucket: fuente.bucket,
+      key: fuente.key,
       edits: {
         resize: {
           width,
@@ -305,9 +368,9 @@ export function aeImage(
       },
     };
 
-    return `${m[1]}/${btoa(JSON.stringify(next))}`;
+    return `${CDN_TRANSFORMA}/${btoa(JSON.stringify(next))}`;
   } catch {
-    // No es un payload del image handler (logo, avatar externo, etc.)
+    // Cualquier cosa inesperada: preferimos servir el original a romper la página
     return url;
   }
 }
@@ -337,6 +400,36 @@ export function namesOf(list: Array<{ name?: string } | string> | undefined): st
 
 export const isForSale = (p: PropertyListItem): boolean =>
   Boolean(p.sale_price) || (p.listing_type ?? []).some((l) => l.id === 1);
+
+/**
+ * Rutas de zona que el sitio publica de verdad.
+ *
+ * Debe replicar exactamente las reglas de getStaticPaths en [tipo]/[sector]:
+ * solo venta, sector siempre, ciudad solo si no coincide con el sector, y un
+ * mínimo de dos propiedades. Cualquier página que enlace a una zona tiene que
+ * consultarlo antes, o publica enlaces a un 404.
+ */
+let zonasCache: Set<string> | null = null;
+
+export async function getZonasPublicadas(): Promise<Set<string>> {
+  if (zonasCache) return zonasCache;
+
+  const cuenta = new Map<string, number>();
+  const sumar = (tipo: string, zona: string) => {
+    const href = `/${slugify(tipo)}-en-venta/${slugify(zona)}/`;
+    cuenta.set(href, (cuenta.get(href) ?? 0) + 1);
+  };
+
+  for (const p of await getAllProperties()) {
+    const tipo = p.category?.name;
+    if (!tipo || !isForSale(p)) continue;
+    if (p.sector) sumar(tipo, p.sector);
+    if (p.city && slugify(p.city) !== slugify(p.sector ?? '')) sumar(tipo, p.city);
+  }
+
+  zonasCache = new Set([...cuenta.entries()].filter(([, n]) => n >= 2).map(([href]) => href));
+  return zonasCache;
+}
 
 /** Agrupa el inventario por sector para generar las páginas de aterrizaje. */
 export interface SectorGroup {

@@ -181,9 +181,11 @@ Astro.response.headers.set('Cache-Control', 'no-store');
     category?: { name: string };
     city?: string; sector?: string;
     sale_price?: number | null; rent_price?: number | null;
+    currency_sale?: string | null; currency_rent?: string | null;
     room?: number | null; bathroom?: number | null;
     property_area?: number | null;
     short_description?: string;
+    description?: string;
   }
 
   let props: Prop[] = [];
@@ -211,11 +213,11 @@ Astro.response.headers.set('Cache-Control', 'no-store');
     let url: string | null = `${API}/properties/filter/?country=149&page=1`;
     let guard = 0;
     while (url && guard++ < 50) {
-      const r = await fetch(url, { headers: cab });
+      const r: Response = await fetch(url, { headers: cab });
       if (!r.ok) break;
-      const j = await r.json();
+      const j: { results?: Prop[]; next?: string } = await r.json();
       todas.push(...(j.results ?? []));
-      url = j.next;
+      url = j.next ?? null;
       $('#estado').textContent = `Cargando inventario… ${todas.length} propiedades`;
     }
     return todas;
@@ -447,7 +449,7 @@ Astro.response.headers.set('Cache-Control', 'no-store');
       <div class="mt-3 flex flex-wrap items-center gap-3 text-[0.8rem] text-[var(--text-mute)]">
         <span class="cuenta"></span>
         <a target="_blank" rel="noopener" class="underline underline-offset-4"
-           href="https://villanisa.vercel.app/propiedades/${p.slug}/">Ver en el sitio</a>
+           href="/propiedades/${p.slug}/">Ver en el sitio</a>
         ${overrides[p.uid]?.actualizado ? `<span>Editado ${new Date(overrides[p.uid].actualizado!).toLocaleDateString('es-DO')}</span>` : ''}
       </div>
     </details>`;
@@ -488,7 +490,18 @@ Astro.response.headers.set('Cache-Control', 'no-store');
           const am = Array.isArray(d.amenities)
             ? d.amenities.map((a: any) => (typeof a === 'string' ? a : a?.name)).filter(Boolean)
             : [];
-          texto = borrador(d, amenidadesUtiles(am));
+          /**
+           * El listado solo trae `short_description`, pero la ficha pública
+           * muestra `description`. Una propiedad con 900 caracteres de texto
+           * bueno en el CRM aparecía aquí como vacía, con un borrador
+           * genérico encima; guardarlo SUSTITUÍA la descripción real, porque
+           * el texto propio manda sobre el del CRM. Ahora que llega la ficha
+           * completa, comprobamos el campo de verdad antes de proponer nada.
+           */
+          const textoCRM = (d.description || d.short_description || '')
+            .replace(/<[^>]*>/g, '')
+            .trim();
+          texto = textoCRM.length >= 80 ? textoCRM : borrador(d, amenidadesUtiles(am));
         }
         partes.push(ficha(p, texto, Boolean(propio)));
         hechas++;
