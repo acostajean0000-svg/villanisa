@@ -141,6 +141,27 @@ export async function getAllProperties(): Promise<PropertyListItem[]> {
     }
 
     console.log(`[alterestate] ${all.length} propiedades cargadas`);
+
+    /**
+     * Un build sin inventario NO se publica.
+     *
+     * Si la API está caída, `get()` devuelve null tras sus reintentos, el
+     * bucle sale en la primera vuelta y esto devolvía [] sin más: el build
+     * terminaba en verde y publicaba un sitio con 0 propiedades, sitemap de 3
+     * URLs y ~180 páginas desindexadas. Y como el panel dispara el despliegue
+     * al guardar un texto, bastaba con guardar durante una caída de
+     * AlterEstate para tumbar el sitio entero sin que nadie lo provocara
+     * a propósito.
+     *
+     * Fallar el build deja publicada la versión anterior, que es lo correcto:
+     * un sitio de ayer sirve; un sitio vacío, no.
+     */
+    if (all.length === 0) {
+      throw new Error(
+        'AlterEstate no devolvió ninguna propiedad. Se aborta el build para no publicar un sitio vacío.'
+      );
+    }
+
     return all;
   });
 }
@@ -282,12 +303,34 @@ export function formatPrice(amount: number | null, currency = 'USD'): string {
  * corrijan en AlterEstate, que es donde se arreglan de raíz.
  */
 export function precioPublico(p: PropertyListItem, tasa: number): string {
-  const { amount, currency } = priceOf(p);
-  if (!amount) return 'Precio a consultar';
-  const usd = toUSD(amount, currency, tasa);
-  if (usd < SUELO_PRECIO_USD || usd > TOPE_PRECIO_USD) return 'Precio a consultar';
-  return formatPrice(amount, currency);
+  const monto = precioMostrable(p, tasa);
+  if (monto === null) return 'Precio a consultar';
+  const { currency } = priceOf(p);
+  const base = formatPrice(monto, currency);
+  return isForSale(p) ? base : `${base}/mes`;
 }
+
+/**
+ * El importe que se puede publicar, o null si no es creíble.
+ *
+ * El suelo de US$10.000 es para VENTAS: "en RD no existe vivienda en venta por
+ * menos de eso". Aplicarlo a un alquiler ocultaba el precio de casi todo el
+ * inventario de renta —una renta de RD$45.000 al mes es perfectamente normal—
+ * y dejaba las fichas de alquiler en blanco. Cada operación tiene su rango.
+ */
+export function precioMostrable(p: PropertyListItem, tasa: number): number | null {
+  const { amount, currency } = priceOf(p);
+  if (!amount) return null;
+  const usd = toUSD(amount, currency, tasa);
+  const [suelo, tope] = isForSale(p)
+    ? [SUELO_PRECIO_USD, TOPE_PRECIO_USD]
+    : [SUELO_ALQUILER_USD, TOPE_ALQUILER_USD];
+  return usd >= suelo && usd <= tope ? amount : null;
+}
+
+/** Rango creíble para una renta mensual en RD. */
+export const SUELO_ALQUILER_USD = 100;
+export const TOPE_ALQUILER_USD = 50_000;
 
 /** Imagen destacada con respaldo a la primera de la galería. */
 export function imageOf(p: PropertyDetail | PropertyListItem): string | null {
@@ -339,13 +382,33 @@ const CDN_TRANSFORMA = 'https://d2kflbb1pmooh4.cloudfront.net';
  * image handler. La ruta estática ES la key del bucket, así que basta con
  * envolverla.
  */
+/**
+ * base64 sobre bytes UTF-8, no sobre code points.
+ *
+ * `btoa` trata cada carácter como un byte Latin-1. Con una foto llamada
+ * "Habitación 2.jpg" —normal cuando las sube un asesor— el payload viaja con
+ * el byte E1 donde S3 tiene C3 A1: el CDN busca una key que no existe y la
+ * imagen sale ROTA, no degradada. Y con un carácter fuera de Latin-1 (una
+ * raya larga, una comilla tipográfica) `btoa` directamente lanza, el catch
+ * devuelve la URL cruda y volvemos a servir el original de cámara.
+ *
+ * Hoy ninguna de las 173 portadas tiene acentos en el nombre del fichero, así
+ * que esto no se ve. Se arregla ahora porque la primera foto que alguien suba
+ * como "Baño principal.jpg" fallaría sin que nadie entienda por qué.
+ */
+const aBase64 = (texto: string): string =>
+  btoa(String.fromCharCode(...new TextEncoder().encode(texto)));
+
+const deBase64 = (b64: string): string =>
+  new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
+
 function fuenteDe(url: string): { bucket: string; key: string } | null {
   const m = url.match(/^https?:\/\/[^/]+\/(.+)$/);
   if (!m) return null;
   const resto = m[1];
 
   try {
-    const payload = JSON.parse(atob(resto));
+    const payload = JSON.parse(deBase64(resto));
     if (payload?.bucket && payload?.key) return { bucket: payload.bucket, key: payload.key };
   } catch {
     /* no es un payload base64: probamos la otra forma */
@@ -403,7 +466,7 @@ export function aeImage(
       },
     };
 
-    return `${CDN_TRANSFORMA}/${btoa(JSON.stringify(next))}`;
+    return `${CDN_TRANSFORMA}/${aBase64(JSON.stringify(next))}`;
   } catch {
     // Cualquier cosa inesperada: preferimos servir el original a romper la página
     return url;
@@ -444,48 +507,58 @@ export const isForSale = (p: PropertyListItem): boolean =>
  * mínimo de dos propiedades. Cualquier página que enlace a una zona tiene que
  * consultarlo antes, o publica enlaces a un 404.
  */
-let zonasCache: Set<string> | null = null;
+export interface ZonaPublicada {
+  href: string;
+  tipo: string;
+  zona: string;
+  ciudad?: string;
+  esCiudad: boolean;
+  n: number;
+}
 
-export async function getZonasPublicadas(): Promise<Set<string>> {
+let zonasCache: ZonaPublicada[] | null = null;
+
+/**
+ * Las zonas que el sitio publica, con su conteo. UNA sola fuente.
+ *
+ * Antes esto se recalculaba a mano en la portada, en el listado y en el bloque
+ * de "otras zonas" de cada página de zona, cada uno con reglas ligeramente
+ * distintas: unos filtraban alquileres y otros no, unos comparaban ciudades
+ * con slugify y otros con !==. El resultado era visible en producción — la
+ * misma zona anunciada con 5 propiedades en la portada y con 4 en el listado —
+ * y peor: un enlace podía apuntar a una página que nunca se generó.
+ */
+export async function getZonasConDatos(): Promise<ZonaPublicada[]> {
   if (zonasCache) return zonasCache;
 
-  const cuenta = new Map<string, number>();
-  const sumar = (tipo: string, zona: string) => {
+  const m = new Map<string, ZonaPublicada>();
+  const sumar = (tipo: string, zona: string, ciudad: string | undefined, esCiudad: boolean) => {
     const href = `/${slugify(tipo)}-en-venta/${slugify(zona)}/`;
-    cuenta.set(href, (cuenta.get(href) ?? 0) + 1);
+    if (!m.has(href)) m.set(href, { href, tipo, zona, ciudad, esCiudad, n: 0 });
+    m.get(href)!.n++;
   };
 
   for (const p of await getAllProperties()) {
     const tipo = p.category?.name;
     if (!tipo || !isForSale(p)) continue;
-    if (p.sector) sumar(tipo, p.sector);
-    if (p.city && slugify(p.city) !== slugify(p.sector ?? '')) sumar(tipo, p.city);
+    if (p.sector) sumar(tipo, p.sector, p.city ?? undefined, false);
+    if (p.city && slugify(p.city) !== slugify(p.sector ?? '')) sumar(tipo, p.city, undefined, true);
   }
 
-  zonasCache = new Set([...cuenta.entries()].filter(([, n]) => n >= 2).map(([href]) => href));
+  // Menos de 2 es una página delgada: no se genera, luego no se enlaza.
+  zonasCache = [...m.values()].filter((z) => z.n >= 2).sort((a, b) => b.n - a.n);
   return zonasCache;
 }
 
-/** Agrupa el inventario por sector para generar las páginas de aterrizaje. */
-export interface SectorGroup {
-  sector: string;
-  city: string;
-  slug: string;
-  properties: PropertyListItem[];
+export async function getZonasPublicadas(): Promise<Set<string>> {
+  return new Set((await getZonasConDatos()).map((z) => z.href));
 }
 
-export function groupBySector(props: PropertyListItem[], min = 2): SectorGroup[] {
-  const map = new Map<string, SectorGroup>();
-  for (const p of props) {
-    if (!p.sector || !p.city) continue;
-    const slug = `${slugify(p.city)}/${slugify(p.sector)}`;
-    if (!map.has(slug)) {
-      map.set(slug, { sector: p.sector, city: p.city, slug, properties: [] });
-    }
-    map.get(slug)!.properties.push(p);
-  }
-  // Una página con una sola propiedad es una página débil para SEO.
-  return [...map.values()]
-    .filter((g) => g.properties.length >= min)
-    .sort((a, b) => b.properties.length - a.properties.length);
-}
+/*
+ * Aquí vivían `SectorGroup` y `groupBySector`, del esquema retirado
+ * /comprar/{ciudad}/{sector}/. Llevaban semanas exportados sin que nadie los
+ * llamara. Se borran: código muerto que parece vivo es una trampa para el
+ * siguiente que lea esto — igual que `isForSale`, que estuvo escrito y sin
+ * conectar mientras los alquileres se publicaban como ventas.
+ * La agrupación real vive en getZonasConDatos().
+ */

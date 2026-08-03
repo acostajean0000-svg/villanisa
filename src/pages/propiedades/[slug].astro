@@ -19,10 +19,11 @@ import {
   getZonasPublicadas,
   getTasaDOP,
   precioPublico,
+  precioMostrable,
   type PropertyListItem,
 } from '../../lib/alterestate';
 import { getOverrides } from '../../lib/contenido';
-import { limpiarHTML } from '../../lib/html';
+import { limpiarHTML, limpiarIframe, escaparTexto } from '../../lib/html';
 
 export async function getStaticPaths() {
   const props = await getAllProperties();
@@ -78,8 +79,19 @@ detail.currency_rent = fuentePrecio?.currency_rent ?? null;
 // El texto editado por el equipo manda sobre el que venga del CRM.
 const overrides = await getOverrides();
 const propio = overrides[detail.uid] ?? {};
+/**
+ * Los DOS textos pasan por el sanitizador, no solo el del CRM.
+ *
+ * El texto propio se escribía como HTML directamente: quien tuviera la clave
+ * del panel podía dejar un script incrustado en todas las fichas, horneado en
+ * HTML estático. Rotar la clave no lo quitaría hasta el siguiente build.
+ * El panel es una herramienta interna, pero "interna" no es lo mismo que
+ * "de confianza absoluta": las claves se comparten y se filtran.
+ */
 const descripcionFinal = propio.descripcion
-  ? `<p>${propio.descripcion.replace(/\n{2,}/g, '</p><p>').replace(/\n/g, '<br />')}</p>`
+  ? limpiarHTML(
+      `<p>${escaparTexto(propio.descripcion).replace(/\n{2,}/g, '</p><p>').replace(/\n/g, '<br />')}</p>`
+    )
   // El texto del CRM se escribe en un editor y se inserta como HTML: hay que
   // limpiarlo antes. Ver src/lib/html.ts.
   : limpiarHTML(detail.description);
@@ -88,6 +100,7 @@ const { amount, currency } = priceOf(detail);
 // Se necesita la tasa para juzgar si un precio en pesos es plausible.
 const tasaFicha = await getTasaDOP();
 const precio = precioPublico(detail, tasaFicha);
+const precioSchema = precioMostrable(detail, tasaFicha);
 const portada = imageOf(detail);
 const galeria = galleryOf(detail);
 // La portada puede o no venir dentro de la galería: unimos sin duplicar.
@@ -201,11 +214,19 @@ const schema = {
   description: metaDesc,
   url: new URL(`/propiedades/${slug}/`, Astro.site).href,
   image: fotos.slice(0, 8),
-  datePosted: new Date().toISOString().split('T')[0],
-  ...(amount && {
+  /**
+   * El precio del schema pasa por el MISMO filtro que el visible.
+   *
+   * Iba sin filtrar: 11 fichas publicaban a Google precios que la página ya
+   * ocultaba, incluidas RD$8,500,000,000 (US$146 millones) y otra de
+   * US$119. Google lee el dato estructurado, no el párrafo, así que el error
+   * de tecleo llegaba igual al resultado de búsqueda — con el agravante de
+   * que ahí parece un precio afirmado por la inmobiliaria.
+   */
+  ...(precioSchema !== null && {
     offers: {
       '@type': 'Offer',
-      price: amount,
+      price: precioSchema,
       priceCurrency: currency,
       availability: 'https://schema.org/InStock',
       seller: { '@id': 'https://villanisa.com.do/#organization' },
@@ -334,7 +355,7 @@ const breadcrumbs = {
           detail.youtubeiframe && (
             <div class="mt-12">
               <h2 class="text-[1.4rem]">Video</h2>
-              <div class="mt-5 aspect-video overflow-hidden rounded-[var(--radius-card)]" set:html={detail.youtubeiframe} />
+              <div class="mt-5 aspect-video overflow-hidden rounded-[var(--radius-card)]" set:html={limpiarIframe(detail.youtubeiframe)} />
             </div>
           )
         }
@@ -343,7 +364,7 @@ const breadcrumbs = {
           detail.mapiframe && (
             <div class="mt-12">
               <h2 class="text-[1.4rem]">Ubicación</h2>
-              <div class="mt-5 aspect-[16/9] overflow-hidden rounded-[var(--radius-card)]" set:html={detail.mapiframe} />
+              <div class="mt-5 aspect-[16/9] overflow-hidden rounded-[var(--radius-card)]" set:html={limpiarIframe(detail.mapiframe)} />
             </div>
           )
         }

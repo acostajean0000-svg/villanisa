@@ -27,54 +27,29 @@ export const prerender = false;
  * ejecución, mientras que `import.meta.env` se resuelve al construir. Sin
  * esta doble lectura, marcar la clave como sensible la dejaría vacía.
  */
-const env = (clave: string): string | undefined => {
-  const enEjecucion =
-    typeof process !== 'undefined' && process.env ? process.env[clave] : undefined;
-  return enEjecucion ?? (import.meta.env as Record<string, string | undefined>)[clave];
-};
+import { verificarBasic, RETO } from '../lib/auth';
 
-const USUARIO = env('PANEL_USUARIO') || 'villanisa';
-const CLAVE = env('PANEL_CLAVE');
+/**
+ * La misma puerta que /api/contenido, en un solo sitio.
+ *
+ * Estaban implementadas por separado y con distinto criterio: aquí con
+ * comparación en tiempo constante, allí con `===`. Y las dos partían la
+ * credencial con `split(':')` desestructurado, lo que rompe con cualquier
+ * clave que contenga ':' o acentos — exactamente las que genera un gestor de
+ * contraseñas. Ver src/lib/auth.ts.
+ */
+const veredicto = verificarBasic(Astro.request.headers.get('authorization'));
 
-const pedirClave = () =>
-  new Response('Acceso restringido', {
-    status: 401,
-    headers: {
-      'WWW-Authenticate': 'Basic realm="Panel Villanisa", charset="UTF-8"',
-      'Cache-Control': 'no-store',
-    },
-  });
-
-// Sin clave configurada se cierra el paso. Fallar cerrado, nunca abierto:
-// un despliegue mal configurado no debe dejar el panel al aire.
-if (!CLAVE) {
+if (!veredicto.ok && veredicto.motivo === 'sin-clave') {
+  // Fallar cerrado, nunca abierto: un despliegue mal configurado no debe
+  // dejar el panel al aire.
   return new Response(
     'El panel no tiene clave configurada. Define PANEL_CLAVE en las variables de entorno.',
     { status: 503, headers: { 'Cache-Control': 'no-store' } }
   );
 }
 
-const cabecera = Astro.request.headers.get('authorization') ?? '';
-const [tipo, credencial] = cabecera.split(' ');
-
-let autorizado = false;
-if (tipo?.toLowerCase() === 'basic' && credencial) {
-  try {
-    const [u, c] = atob(credencial).split(':');
-    // Comparación de tiempo constante: no revela la clave por cronometraje
-    const iguales = (a = '', b = '') => {
-      if (a.length !== b.length) return false;
-      let dif = 0;
-      for (let i = 0; i < a.length; i++) dif |= a.charCodeAt(i) ^ b.charCodeAt(i);
-      return dif === 0;
-    };
-    autorizado = iguales(u, USUARIO) && iguales(c, CLAVE);
-  } catch {
-    autorizado = false;
-  }
-}
-
-if (!autorizado) return pedirClave();
+if (!veredicto.ok) return new Response('Acceso restringido', { status: 401, headers: RETO });
 
 Astro.response.headers.set('Cache-Control', 'no-store');
 ---
@@ -172,6 +147,10 @@ Astro.response.headers.set('Cache-Control', 'no-store');
 
   const $ = (s: string) => document.querySelector(s) as HTMLElement;
   const num = (n: number) => n.toLocaleString('es-DO');
+  /** El nombre viene del CRM sin filtrar y acaba en innerHTML. */
+  const esc = (t: unknown) =>
+    String(t ?? '').replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string);
   const dinero = (n: number | null) =>
     n ? 'US$' + Math.round(n).toLocaleString('en-US') : '—';
 
@@ -202,9 +181,21 @@ Astro.response.headers.set('Cache-Control', 'no-store');
     } catch { /* nos quedamos con el respaldo */ }
   }
 
+  /**
+   * El CRM guarda los códigos de moneda mezclados: USD/DOP/US en venta y
+   * DOP/USD/RD en alquiler. Comparar contra 'DOP' a secas trataba los 10
+   * registros con 'RD' como dólares y los multiplicaba por 58 en el precio
+   * mediano, en la mediana por m² y en el detector de precios imposibles.
+   */
+  const normalizarMoneda = (c?: string | null) => {
+    const x = (c ?? '').trim().toUpperCase();
+    if (x === 'RD' || x === 'RD$' || x === 'DOP') return 'DOP';
+    return 'USD';
+  };
+
   const enUSD = (p: Prop) => {
     const monto = p.sale_price || p.rent_price || 0;
-    const moneda = (p.sale_price ? p.currency_sale : p.currency_rent) || 'USD';
+    const moneda = normalizarMoneda(p.sale_price ? p.currency_sale : p.currency_rent);
     return moneda === 'DOP' ? monto / tasa : monto;
   };
 
@@ -275,9 +266,9 @@ Astro.response.headers.set('Cache-Control', 'no-store');
       <ul class="mt-4 max-h-72 space-y-1.5 overflow-y-auto text-[0.85rem]">
         ${lista.slice(0, 60).map((p) => `
           <li>
-            <a href="https://${DOMAIN}/propiedad/${p.slug}" target="_blank" rel="noopener"
+            <a href="/propiedades/${encodeURIComponent(p.slug)}/" target="_blank" rel="noopener"
                class="text-[var(--text-soft)] underline-offset-4 hover:text-[var(--text)] hover:underline">
-              ${p.name || p.slug}
+              ${esc(p.name || p.slug)}
             </a>
             <span class="text-[var(--text-mute)]">— ${[p.sector, p.city].filter(Boolean).join(', ') || 'sin ubicación'}</span>
           </li>`).join('')}
@@ -306,7 +297,21 @@ Astro.response.headers.set('Cache-Control', 'no-store');
     const sinHab = props.filter((p) => !p.room && p.category?.name !== 'Solares');
     const sinDesc = props.filter((p) => (p.short_description || '').replace(/<[^>]*>/g, '').trim().length < 80);
     // Errores de tecleo en el precio: se detectan al convertir a dólares
-    const precioImposible = props.filter((p) => enUSD(p) > 10000000);
+    /**
+     * Imposibles por ARRIBA y por ABAJO.
+     *
+     * Solo se miraba el tope, así que las once fichas de US$119, US$145 y
+     * US$950 —rentas mensuales tecleadas en el campo de venta— nunca se
+     * reportaban. El sitio ya las oculta, pero ocultarlas no las arregla:
+     * este panel es el único sitio donde alguien puede verlas para
+     * corregirlas en AlterEstate, que es donde se arreglan de verdad.
+     */
+    const precioImposible = props.filter((p) => {
+      const u = enUSD(p);
+      if (!u) return false;
+      const venta = Boolean(p.sale_price);
+      return venta ? u < 10000 || u > 10000000 : u < 100 || u > 50000;
+    });
     const nombrePobre = props.filter((p) => {
       const n = (p.name || '').trim();
       return n.length < 22 || /^(apartamento|casa|villa|propiedad)(\s+(en|de)\s+venta)?$/i.test(n);
@@ -441,7 +446,7 @@ Astro.response.headers.set('Cache-Control', 'no-store');
       ? '<span class="ml-2 rounded-full bg-[#eaf3ee] px-2.5 py-0.5 text-[0.72rem] font-semibold text-[#12402f]">texto propio</span>'
       : '<span class="ml-2 rounded-full bg-[#fdf4e3] px-2.5 py-0.5 text-[0.72rem] font-semibold text-[#8a5a12]">borrador</span>';
     return `<details class="card p-5" data-uid="${p.uid}">
-      <summary class="cursor-pointer list-none font-medium">${p.name || p.slug}${sello}
+      <summary class="cursor-pointer list-none font-medium">${esc(p.name || p.slug)}${sello}
         <span class="ml-1 text-[0.82rem] font-normal text-[var(--text-mute)]">${donde}</span>
       </summary>
       <textarea class="txt mt-4 w-full rounded-xl border border-[var(--border-control)] bg-[var(--surface)] p-4 text-[0.9rem] leading-relaxed"
@@ -613,7 +618,7 @@ Astro.response.headers.set('Cache-Control', 'no-store');
             </tr></thead>
             <tbody>${bajas.sort((a, b) => a.w - b.w).map((x) => `
               <tr class="border-b border-[var(--border)] last:border-0">
-                <td class="p-3"><a href="https://${DOMAIN}/propiedad/${x.p.slug}" target="_blank" rel="noopener" class="underline-offset-4 hover:underline">${x.p.name}</a></td>
+                <td class="p-3"><a href="/propiedades/${encodeURIComponent(x.p.slug)}/" target="_blank" rel="noopener" class="underline-offset-4 hover:underline">${esc(x.p.name)}</a></td>
                 <td class="p-3 text-[var(--text-soft)]">${[x.p.sector, x.p.city].filter(Boolean).join(', ')}</td>
                 <td class="p-3 text-right tabular-nums ${x.w < 800 ? 'text-[#d03b3b]' : 'text-[var(--text-soft)]'}">${x.w} px</td>
               </tr>`).join('')}</tbody>

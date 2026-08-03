@@ -1,7 +1,19 @@
 ---
 import Base from '../../layouts/Base.astro';
 import PropertyCard from '../../components/PropertyCard.astro';
-import { getAllProperties, priceOf, slugify, getTasaDOP, usdOf, precioPlausible, isForSale } from '../../lib/alterestate';
+import {
+  getAllProperties,
+  priceOf,
+  slugify,
+  getTasaDOP,
+  usdOf,
+  toUSD,
+  precioPlausible,
+  precioMostrable,
+  isForSale,
+  getZonasConDatos,
+  type ZonaPublicada,
+} from '../../lib/alterestate';
 
 const props = await getAllProperties();
 // Buena parte del inventario está en pesos: normalizamos para ordenar y filtrar.
@@ -33,22 +45,9 @@ const ciudades = [...new Set(props.map((p) => p.city).filter(Boolean))].sort() a
  * consulta cabecera del mercado. Sin enlaces internos no reciben ni autoridad
  * ni contexto de anclaje.
  */
-const construirZonas = (campo: 'sector' | 'city') => {
-  const m = new Map<string, { tipo: string; zona: string; ciudad?: string; n: number; href: string }>();
-  for (const p of props) {
-    const tipo = p.category?.name;
-    const zona = p[campo];
-    if (!tipo || !zona || !isForSale(p)) continue;
-    if (campo === 'city' && slugify(zona) === slugify(p.sector ?? '')) continue;
-    const href = `/${slugify(tipo)}-en-venta/${slugify(zona)}/`;
-    if (!m.has(href)) m.set(href, { tipo, zona, ciudad: campo === 'sector' ? p.city : undefined, n: 0, href });
-    m.get(href)!.n++;
-  }
-  return [...m.values()].filter((z) => z.n >= 2).sort((a, b) => b.n - a.n);
-};
-
-const zonas = construirZonas('sector');
-const ciudades_zonas = construirZonas('city');
+const todasLasZonas: ZonaPublicada[] = await getZonasConDatos();
+const zonas = todasLasZonas.filter((z: ZonaPublicada) => !z.esCiudad);
+const ciudades_zonas = todasLasZonas.filter((z: ZonaPublicada) => z.esCiudad);
 
 const total = props.length;
 const descripcion = `${total} propiedades en venta en República Dominicana: apartamentos, casas, villas y proyectos en planos en Santo Domingo, Punta Cana y más. Villanisa, 25 años asesorando compradores.`;
@@ -126,7 +125,16 @@ const schema = {
             data-tipo={slugify(p.category?.name ?? '')}
             data-ciudad={slugify(p.city ?? '')}
             data-hab={p.room ?? 0}
-            data-precio={usdOf(p, tasa) ? Math.round(usdOf(p, tasa)!) : ''}
+            data-precio={(() => {
+              // El filtro usa el MISMO precio que muestra la tarjeta. Con
+              // usdOf crudo, la ficha de US$119 salía en "Hasta US$100k"
+              // enseñando "Precio a consultar", y la de RD$8,500,000,000 en
+              // "US$400k+". Filtrar por presupuesto devolvía justo las fichas
+              // cuyo precio no nos creemos.
+              const m = precioMostrable(p, tasa);
+              return m ? Math.round(toUSD(m, priceOf(p).currency, tasa)) : '';
+            })()}
+            data-venta={isForSale(p) ? '1' : '0'}
           >
             <PropertyCard property={p} tasa={tasa} eager={i < 3} />
           </div>
@@ -148,7 +156,7 @@ const schema = {
           El inventario completo de cada ciudad, con precios de referencia y áreas típicas.
         </p>
         <div class="mt-7 flex flex-wrap gap-2.5">
-          {ciudades_zonas.map((z) => (
+          {ciudades_zonas.map((z: ZonaPublicada) => (
             <a
               href={z.href}
               class="rounded-full border border-[var(--border)] px-4.5 py-2.5 text-[0.9rem] transition-colors hover:border-[var(--color-brand-500)] hover:text-[var(--color-brand-500)]"
@@ -170,7 +178,7 @@ const schema = {
           Cada zona tiene su propia página con precios, áreas típicas y el inventario completo.
         </p>
         <div class="mt-7 flex flex-wrap gap-2.5">
-          {zonas.map((z) => (
+          {zonas.map((z: ZonaPublicada) => (
             <a
               href={z.href}
               class="rounded-full border border-[var(--border)] px-4.5 py-2.5 text-[0.9rem] transition-colors hover:border-[var(--color-brand-500)] hover:text-[var(--color-brand-500)]"

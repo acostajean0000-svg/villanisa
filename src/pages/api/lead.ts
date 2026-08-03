@@ -50,9 +50,16 @@ export const POST: APIRoute = async ({ request }) => {
     return new Response(JSON.stringify({ ok: true }), { status: 200 });
   }
 
-  const full_name = String(body.full_name ?? '').trim();
-  const email = String(body.email ?? '').trim();
-  const phone = String(body.phone ?? '').trim();
+  /**
+   * Longitudes máximas. Sin ellas, cualquiera puede mandar un `notes` de
+   * varios megabytes: no es un agujero de seguridad, pero llena el CRM de
+   * basura y consume tiempo de función en cada envío.
+   */
+  const recortar = (v: unknown, max: number) => String(v ?? '').trim().slice(0, max);
+
+  const full_name = recortar(body.full_name, 120);
+  const email = recortar(body.email, 160);
+  const phone = recortar(body.phone, 40);
 
   if (full_name.length < 3) return bad('Nombre inválido');
   if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(email)) return bad('Correo inválido');
@@ -61,7 +68,7 @@ export const POST: APIRoute = async ({ request }) => {
   const apiKey = env('ALTERESTATE_API_KEY');
 
   const notas = [
-    body.notes ? String(body.notes).trim() : '',
+    recortar(body.notes, 2000),
     body.property_name ? `Propiedad: ${body.property_name}` : '',
     body.page_url ? `Página: ${body.page_url}` : '',
   ]
@@ -87,7 +94,14 @@ export const POST: APIRoute = async ({ request }) => {
    * Por eso el UID del round robin es la variable que de verdad hay que
    * poner en cuanto exista la regla.
    */
-  const asesor = String(body.agent_ref ?? '').trim();
+  // Vienen del cliente: se acotan a la forma que emite el propio sitio para
+  // que nadie pueda dirigir spam a un asesor concreto ni inventar un uid.
+  const esRefValida = (v: string) => /^[\w.+-]+@[\w.-]+\.[a-z]{2,}$/i.test(v) || /^[A-Za-z0-9]{6,20}$/.test(v);
+  const asesorBruto = recortar(body.agent_ref, 160);
+  const asesor = esRefValida(asesorBruto) ? asesorBruto : '';
+  const propiedad = /^[A-Za-z0-9]{6,20}$/.test(recortar(body.property_uid, 20))
+    ? recortar(body.property_uid, 20)
+    : '';
   const ruletaSitio = env('ALTERESTATE_ROUND_ROBIN_UID');
 
   const asignacion: Record<string, string> = asesor
@@ -110,12 +124,12 @@ export const POST: APIRoute = async ({ request }) => {
     platform: 'website',
     listing_type: 1,
     ...asignacion,
-    ...(body.property_uid ? { property_uid: body.property_uid } : {}),
+    ...(propiedad ? { property_uid: propiedad } : {}),
     ...(env('ALTERESTATE_VIA_ID') ? { via: Number(env('ALTERESTATE_VIA_ID')) } : {}),
   };
 
   for (const k of ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term']) {
-    if (body[k]) lead[k] = String(body[k]);
+    if (body[k]) lead[k] = recortar(body[k], 120);
   }
 
   // Sin la key configurada el sitio no debe perder el lead: se registra y se
@@ -128,6 +142,11 @@ export const POST: APIRoute = async ({ request }) => {
     });
   }
 
+  /**
+   * Con tiempo límite. Sin él, si AlterEstate se cuelga la función agota el
+   * plazo de Vercel y el visitante ve un error genérico después de esperar.
+   * Diez segundos es de sobra para un POST y deja margen para el reintento.
+   */
   const enviar = (payload: Record<string, unknown>) =>
     fetch(CRM_URL, {
       method: 'POST',
@@ -136,6 +155,7 @@ export const POST: APIRoute = async ({ request }) => {
         Authorization: `Token ${apiKey}`,
       },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(10_000),
     });
 
   try {
@@ -148,7 +168,13 @@ export const POST: APIRoute = async ({ request }) => {
      * el peor desenlace posible, así que se reintenta sin la asignación: cae
      * en el round robin o en el dueño de la clave, pero entra.
      */
-    if (!res.ok && asesor) {
+    /**
+     * Solo se reintenta ante un 400: "ese asesor no existe" es un error de
+     * datos y merece un segundo intento sin asignación. Un 429 o un 500 son
+     * fallos del CRM, y reintentar ahí puede crear el lead DOS veces —
+     * el primer envío pudo haberse procesado antes de fallar la respuesta.
+     */
+    if (res.status === 400 && asesor) {
       const detalle = await res.text();
       console.warn('[lead] asignación a', asesor, 'rechazada:', detalle.slice(0, 200));
       const { related, ...sinAsesor } = lead as Record<string, unknown> & { related?: string };

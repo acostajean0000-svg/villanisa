@@ -2,7 +2,7 @@
 import Base from '../layouts/Base.astro';
 import PropertyCard from '../components/PropertyCard.astro';
 import LeadForm from '../components/LeadForm.astro';
-import { getAllProperties, slugify, getTasaDOP, usdOf, precioPlausible } from '../lib/alterestate';
+import { getAllProperties, getZonasConDatos, type ZonaPublicada, getTasaDOP, usdOf, precioPlausible } from '../lib/alterestate';
 
 const props = await getAllProperties();
 const tasa = await getTasaDOP();
@@ -15,17 +15,10 @@ const destacadas = [...props]
   .slice(0, 6);
 
 // Zonas más fuertes, con la URL que la gente busca: /apartamentos-en-venta/naco/
-const zonas = (() => {
-  const m = new Map<string, { tipo: string; zona: string; ciudad?: string; n: number; href: string }>();
-  for (const p of props) {
-    const tipo = p.category?.name;
-    if (!tipo || !p.sector) continue;
-    const href = `/${slugify(tipo)}-en-venta/${slugify(p.sector)}/`;
-    if (!m.has(href)) m.set(href, { tipo, zona: p.sector, ciudad: p.city, n: 0, href });
-    m.get(href)!.n++;
-  }
-  return [...m.values()].filter((z) => z.n >= 2).sort((a, b) => b.n - a.n).slice(0, 10);
-})();
+// Se leen de getZonasConDatos, que es la misma fuente que decide qué páginas
+// se generan: así el número que se anuncia aquí es el que el visitante va a
+// encontrar, y nunca se enlaza a una zona que no existe.
+const zonas: ZonaPublicada[] = (await getZonasConDatos()).filter((z) => !z.esCiudad).slice(0, 10);
 const total = props.length;
 
 const descripcion =
@@ -97,7 +90,7 @@ const pilares = [
         <p class="eyebrow">Por zona</p>
         <h2 class="mt-2.5 text-[clamp(1.8rem,3.5vw,2.6rem)]">Dónde estamos vendiendo</h2>
         <div class="mt-9 flex flex-wrap gap-2.5">
-          {zonas.map((z) => (
+          {zonas.map((z: ZonaPublicada) => (
             <a
               href={z.href}
               class="reveal rounded-full border border-[var(--border)] px-4.5 py-2.5 text-[0.92rem] transition-colors hover:border-[var(--color-brand-500)] hover:text-[var(--color-brand-500)]"

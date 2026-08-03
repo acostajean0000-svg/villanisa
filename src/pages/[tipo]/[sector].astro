@@ -21,6 +21,7 @@ import {
   usdOf,
   isForSale,
   precioParaEstadistica,
+  getZonasConDatos,
   type PropertyListItem,
 } from '../../lib/alterestate';
 
@@ -125,23 +126,19 @@ const metaDesc = [
   'Asesoría de Villanisa, 25 años en el mercado dominicano.',
 ].filter(Boolean).join(' ').slice(0, 158);
 
-/* ------------------------------- zonas relacionadas: enlazado interno real - */
-const todas = await getAllProperties();
-const relacionadas = (() => {
-  const m = new Map<string, { zona: string; ciudad?: string; n: number; href: string }>();
-  for (const p of todas) {
-    const tipo = p.category?.name;
-    if (!tipo || !p.sector) continue;
-    const href = `/${slugify(tipo)}-en-venta/${slugify(p.sector)}/`;
-    if (slugify(p.sector) === slugify(grupo.zona) && slugify(tipo) === grupo.tipo) continue;
-    // Priorizamos la misma ciudad: son las que compiten por el mismo comprador
-    if (grupo.ciudad && p.city !== grupo.ciudad && !grupo.esCiudad) continue;
-    const k = href;
-    if (!m.has(k)) m.set(k, { zona: p.sector, ciudad: p.city, n: 0, href });
-    m.get(k)!.n++;
-  }
-  return [...m.values()].filter((x) => x.n >= 2).sort((a, b) => b.n - a.n).slice(0, 10);
-})();
+/* ------------------------------- zonas relacionadas: enlazado interno real -
+ *
+ * Se leen de getZonasConDatos en vez de recontarlas aquí. Recontarlas daba
+ * números distintos a los de la portada y el listado —la misma zona con 5 aquí
+ * y 4 allí— porque este bloque no filtraba alquileres y comparaba ciudades sin
+ * slugify. Además podía enlazar a una zona que no llegó a generarse.
+ */
+const propiaHref = `/${grupo.tipo}-en-venta/${slugify(grupo.zona)}/`;
+const relacionadas = (await getZonasConDatos())
+  .filter((z) => z.href !== propiaHref)
+  // Priorizamos la misma ciudad: son las que compiten por el mismo comprador
+  .filter((z) => (grupo.esCiudad || !grupo.ciudad ? true : z.esCiudad || z.ciudad === grupo.ciudad))
+  .slice(0, 10);
 
 const schema = {
   '@context': 'https://schema.org',

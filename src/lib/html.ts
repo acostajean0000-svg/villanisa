@@ -21,6 +21,48 @@ import sanitizeHtml from 'sanitize-html';
  */
 const ETIQUETAS = ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 'ul', 'ol', 'li', 'a', 'h3', 'blockquote'];
 
+/**
+ * Los campos "iframe de YouTube" y "iframe del mapa" del CRM son HTML libre
+ * por diseño, así que no pueden pasar por `limpiarHTML` —les quitaría el
+ * iframe, que es justo lo que queremos—. Pero tampoco pueden ir crudos: un
+ * asesor que pegue `<img src=x onerror=...>` en ese campo ejecuta código en
+ * villanisa.com.do sobre todos los visitantes de la ficha.
+ *
+ * Aquí solo se permite un iframe, y solo si apunta a YouTube o a Google Maps.
+ * Cualquier otra cosa —incluido un iframe hacia otro dominio— se descarta.
+ */
+const ANFITRIONES = /^https:\/\/(www\.)?(youtube\.com|youtube-nocookie\.com|youtu\.be|google\.com|maps\.google\.[a-z.]+)\//i;
+
+export function limpiarIframe(sucio: string | null | undefined): string {
+  if (!sucio) return '';
+  return sanitizeHtml(sucio, {
+    allowedTags: ['iframe'],
+    allowedAttributes: {
+      iframe: ['src', 'width', 'height', 'title', 'allow', 'allowfullscreen', 'loading', 'referrerpolicy'],
+    },
+    allowedIframeHostnames: [
+      'www.youtube.com',
+      'youtube.com',
+      'www.youtube-nocookie.com',
+      'youtu.be',
+      'www.google.com',
+      'maps.google.com',
+    ],
+    allowedSchemes: ['https'],
+    nonTextTags: ['style', 'script', 'textarea', 'option', 'noscript'],
+    exclusiveFilter: (marco) => marco.tag === 'iframe' && !ANFITRIONES.test(marco.attribs?.src ?? ''),
+  }).trim();
+}
+
+/**
+ * El texto del panel es TEXTO, no HTML: se escapa antes de envolverlo en <p>.
+ * Así un asesor puede escribir "áticos < 100 m²" sin romper nada, y nadie
+ * puede colar una etiqueta desde el editor.
+ */
+export function escaparTexto(t: string): string {
+  return t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] as string);
+}
+
 export function limpiarHTML(sucio: string | null | undefined): string {
   if (!sucio) return '';
   return sanitizeHtml(sucio, {
