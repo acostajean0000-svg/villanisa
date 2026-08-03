@@ -242,10 +242,23 @@ export function precioParaEstadistica(p: PropertyListItem, tasa: number): number
   return usd;
 }
 
+/**
+ * El CRM guarda el código de moneda sin normalizar: en el inventario conviven
+ * `USD` (117), `DOP` (53) y `US` (4) en venta, y `DOP` (108), `USD` (6) y
+ * `RD` (10) en alquiler. El resto del código compara contra 'DOP', así que un
+ * `RD` se tomaba por dólares: el mismo número, multiplicado por 58.
+ */
+export function normalizarMoneda(c: string | null | undefined): string {
+  const s = (c ?? '').trim().toUpperCase();
+  if (s === 'RD' || s === 'RD$' || s === 'DOP') return 'DOP';
+  if (s === 'US' || s === 'US$' || s === 'USD') return 'USD';
+  return s || 'USD';
+}
+
 export function priceOf(p: PropertyListItem): { amount: number | null; currency: string } {
   const amount = p.sale_price || p.rent_price || null;
-  const currency = (p.sale_price ? p.currency_sale : p.currency_rent) || 'USD';
-  return { amount, currency };
+  const bruta = p.sale_price ? p.currency_sale : p.currency_rent;
+  return { amount, currency: normalizarMoneda(bruta) };
 }
 
 export function formatPrice(amount: number | null, currency = 'USD'): string {

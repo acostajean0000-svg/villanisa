@@ -31,9 +31,46 @@ export async function getStaticPaths() {
 const { slug } = Astro.params;
 const { listItem } = Astro.props as { listItem: PropertyListItem };
 
-// La ficha completa tiene galería, amenidades y agente; si falla la llamada
-// caemos al item del listado para no romper el build.
-const detail = (await getProperty(slug!)) ?? (listItem as any);
+/**
+ * La ficha completa trae galería, amenidades y agente. Pero para las
+ * propiedades cargadas como proyecto (~40% del inventario) el endpoint de
+ * detalle devuelve `sale_price`, `room`, `property_area` y `listing_type` en
+ * nulo: los datos reales solo viven en el listado.
+ *
+ * Al usar `detail` a secas, esas fichas llevaban desde la publicación
+ * mostrando "Precio a consultar" y una ficha técnica con una sola fila —
+ * mientras la tarjeta que el visitante acababa de pulsar decía US$85,000,
+ * 3 habitaciones y 96 m². Es la peor fuga de conversión del sitio y no la vio
+ * ninguna revisión de código, porque hay que comparar tarjeta contra ficha.
+ *
+ * Fusionamos: el detalle manda donde tiene dato, el listado rellena el resto.
+ */
+const conDato = (v: unknown) =>
+  v !== null && v !== undefined && v !== '' && !(Array.isArray(v) && v.length === 0);
+
+const fusionar = (base: Record<string, any>, encima: Record<string, any>) => {
+  const out: Record<string, any> = { ...base };
+  for (const [k, v] of Object.entries(encima)) if (conDato(v)) out[k] = v;
+  return out;
+};
+
+const ficha = await getProperty(slug!);
+const detail = fusionar(listItem as any, (ficha ?? {}) as any) as any;
+
+/**
+ * El precio y su moneda vienen del MISMO sitio, siempre.
+ *
+ * Fusionar campo a campo los desacopla: en una propiedad de proyecto el
+ * detalle trae `sale_price: null` pero `currency_sale: "RD"`, y el listado
+ * trae `sale_price: 85000, currency_sale: "US"`. Mezclados daban RD$85,000
+ * donde son US$85,000 — el precio equivocado por un factor de 58.
+ */
+const fuentePrecio: any =
+  conDato(ficha?.sale_price) || conDato((ficha as any)?.rent_price) ? ficha : listItem;
+detail.sale_price = fuentePrecio?.sale_price ?? null;
+detail.rent_price = fuentePrecio?.rent_price ?? null;
+detail.currency_sale = fuentePrecio?.currency_sale ?? null;
+detail.currency_rent = fuentePrecio?.currency_rent ?? null;
 
 // El texto editado por el equipo manda sobre el que venga del CRM.
 const overrides = await getOverrides();
