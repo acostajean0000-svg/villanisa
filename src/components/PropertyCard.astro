@@ -1,11 +1,12 @@
 ---
 import {
-  formatPrice,
   precioPublico,
+  formatPrice,
   imageOf,
   priceOf,
   aeImage,
   aeSrcSet,
+  getTasaDOP,
   type PropertyListItem,
 } from '../lib/alterestate';
 
@@ -17,7 +18,18 @@ export interface Props {
   eager?: boolean;
 }
 
-const { property: p, eager = false, tasa } = Astro.props;
+const { property: p, eager = false, tasa: tasaProp } = Astro.props;
+
+/**
+ * La tasa no se delega al que use el componente.
+ *
+ * Era opcional, y donde no se pasaba la tarjeta caía al precio crudo: las
+ * "propiedades similares" de cada ficha mostraban US$119 y US$500 mientras
+ * el resto del sitio ya los ocultaba. Es el mismo patrón que nos ha mordido
+ * tres veces —la protección escrita y conectada solo en algunos sitios—, así
+ * que aquí se resuelve dentro. getTasaDOP() cachea, no cuesta nada.
+ */
+const tasa = tasaProp ?? (await getTasaDOP());
 const { amount, currency } = priceOf(p);
 const img = imageOf(p);
 const ubicacion = [p.sector, p.city].filter(Boolean).join(', ');
@@ -65,10 +77,10 @@ const specs = [
 
     <div class="pt-4">
       <p class="font-[family-name:var(--font-display)] text-[1.35rem] leading-none text-[var(--text)]">
-        {tasa ? precioPublico(p, tasa) : formatPrice(amount, currency)}
+        {precioPublico(p, tasa)}
       </p>
       {
-        currency === 'DOP' && amount && tasa && precioPublico(p, tasa) !== 'Precio a consultar' && (
+        currency === 'DOP' && amount && precioPublico(p, tasa) !== 'Precio a consultar' && (
           <p class="mt-1 text-[0.78rem] text-[var(--text-mute)]">
             ≈ {formatPrice(Math.round(amount / tasa), 'USD')}
           </p>
