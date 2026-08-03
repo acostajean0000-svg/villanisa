@@ -20,6 +20,7 @@ import {
   type PropertyListItem,
 } from '../../lib/alterestate';
 import { getOverrides } from '../../lib/contenido';
+import { limpiarHTML } from '../../lib/html';
 
 export async function getStaticPaths() {
   const props = await getAllProperties();
@@ -77,7 +78,9 @@ const overrides = await getOverrides();
 const propio = overrides[detail.uid] ?? {};
 const descripcionFinal = propio.descripcion
   ? `<p>${propio.descripcion.replace(/\n{2,}/g, '</p><p>').replace(/\n/g, '<br />')}</p>`
-  : detail.description;
+  // El texto del CRM se escribe en un editor y se inserta como HTML: hay que
+  // limpiarlo antes. Ver src/lib/html.ts.
+  : limpiarHTML(detail.description);
 
 const { amount, currency } = priceOf(detail);
 const precio = formatPrice(amount, currency);

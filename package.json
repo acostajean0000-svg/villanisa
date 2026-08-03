@@ -15,7 +15,11 @@
     "@tailwindcss/vite": "^4.3.3",
     "@vercel/blob": "^2.6.1",
     "astro": "^7.1.6",
+    "sanitize-html": "^2.17.6",
     "sharp": "^0.35.3",
     "tailwindcss": "^4.3.3"
+  },
+  "devDependencies": {
+    "@types/sanitize-html": "^2.16.1"
   }
 }
