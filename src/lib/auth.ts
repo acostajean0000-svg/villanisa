@@ -18,7 +18,13 @@
 export const env = (clave: string): string | undefined => {
   const enEjecucion =
     typeof process !== 'undefined' && process.env ? process.env[clave] : undefined;
-  return enEjecucion ?? (import.meta.env as Record<string, string | undefined>)[clave];
+  // El `?? {}` no es adorno: si un día esto corre en un entorno donde Vite no
+  // sustituye `import.meta.env` —una prueba en Node puro, otro empaquetador—
+  // sin él la lectura de una variable inexistente no devuelve undefined: lanza
+  // TypeError. Y como de aquí cuelgan la puerta del panel y el circuito de
+  // leads, un TypeError aquí es el sitio entero devolviendo 500.
+  const enBuild = (import.meta.env ?? {}) as Record<string, string | undefined>;
+  return enEjecucion ?? enBuild[clave];
 };
 
 /** Comparación en tiempo constante: no filtra cuántos caracteres acertó. */

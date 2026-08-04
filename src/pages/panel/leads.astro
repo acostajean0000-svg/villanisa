@@ -1,0 +1,241 @@
+---
+/**
+ * Panel · Leads — Fase 2 del sistema propio.
+ *
+ * Lee del almacén propio, no de AlterEstate. Es la primera pantalla del
+ * proyecto que muestra datos que son de Villanisa y de nadie más.
+ *
+ * Se renderiza en el servidor a propósito: la clave del almacén tiene permiso
+ * total sobre la tabla, así que no puede salir del servidor ni un momento. Por
+ * eso aquí no hay ninguna llamada desde el navegador, al revés que en /panel.
+ */
+import Base from '../../layouts/Base.astro';
+import { verificarBasic, RETO } from '../../lib/auth';
+import { listarLeads, almacenConfigurado, type LeadGuardado } from '../../lib/leads';
+
+export const prerender = false;
+
+const veredicto = verificarBasic(Astro.request.headers.get('authorization'));
+
+if (!veredicto.ok && veredicto.motivo === 'sin-clave') {
+  return new Response(
+    'El panel no tiene clave configurada. Define PANEL_CLAVE en las variables de entorno.',
+    { status: 503, headers: { 'Cache-Control': 'no-store' } }
+  );
+}
+if (!veredicto.ok) return new Response('Acceso restringido', { status: 401, headers: RETO });
+
+Astro.response.headers.set('Cache-Control', 'no-store');
+
+let leads: LeadGuardado[] = [];
+let error: string | null = null;
+const configurado = almacenConfigurado();
+
+if (configurado) {
+  try {
+    leads = await listarLeads(300);
+  } catch (err) {
+    // Se distingue de "no hay leads": ver el comentario en listarLeads().
+    error = (err as Error).message;
+  }
+}
+
+const ahora = Date.now();
+const desde = (dias: number) =>
+  leads.filter((l) => ahora - new Date(l.creado_en).getTime() < dias * 86_400_000).length;
+
+const pendientes = leads.filter((l) => l.crm_estado !== 'enviado');
+
+const fecha = (iso: string) =>
+  new Date(iso).toLocaleString('es-DO', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+const ETIQUETA: Record<LeadGuardado['crm_estado'], string> = {
+  enviado: 'En el CRM',
+  rechazado: 'No entró al CRM',
+  pendiente: 'Sin confirmar',
+  sin_clave: 'CRM sin configurar',
+};
+---
+
+<Base
+  title="Panel · Leads"
+  description="Leads recibidos por el sitio, guardados en la base de datos propia."
+  noindex={true}
+>
+  <section class="container-x pt-12">
+    <p class="eyebrow">Interno</p>
+    <h1 class="mt-3 text-[clamp(1.9rem,4vw,2.8rem)] leading-tight">Leads recibidos</h1>
+    <p class="mt-4 max-w-2xl text-[1rem] leading-relaxed text-[var(--text-soft)]">
+      Estos contactos están guardados en la base de datos de Villanisa. Se escriben aquí
+      primero y después se replican a AlterEstate: si el CRM falla, el lead sigue estando.
+    </p>
+    <p class="mt-4 text-[0.9rem]">
+      <a class="underline underline-offset-4" href="/panel/">← Volver al panel de inventario</a>
+    </p>
+  </section>
+
+  {!configurado && (
+    <section class="container-x mt-8">
+      <div class="rounded-xl border border-[var(--color-gold-600)] bg-[#fdf8ec] p-5 text-[0.95rem]">
+        <p class="font-semibold">El almacén propio todavía no está conectado.</p>
+        <p class="mt-2 text-[var(--text-soft)]">
+          Faltan las variables <code>SUPABASE_URL</code> y <code>SUPABASE_SERVICE_KEY</code> en
+          Vercel. Mientras tanto los leads siguen llegando a AlterEstate, pero no se guardan
+          en la base propia.
+        </p>
+      </div>
+    </section>
+  )}
+
+  {error && (
+    <section class="container-x mt-8">
+      <div class="rounded-xl border border-red-300 bg-red-50 p-5 text-[0.95rem]">
+        <p class="font-semibold">No se pudieron leer los leads.</p>
+        <p class="mt-2 text-[var(--text-soft)]">{error}</p>
+        <p class="mt-2 text-[var(--text-soft)]">
+          Esto no quiere decir que no haya leads: quiere decir que ahora mismo no se puede
+          consultar la base. Vuelve a cargar en un minuto.
+        </p>
+      </div>
+    </section>
+  )}
+
+  {configurado && !error && (
+    <>
+      <section class="container-x mt-10">
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div class="rounded-xl border border-[var(--border)] p-4">
+            <p class="text-2xl font-semibold">{desde(1)}</p>
+            <p class="mt-1 text-[0.8rem] text-[var(--text-mute)]">Últimas 24 horas</p>
+          </div>
+          <div class="rounded-xl border border-[var(--border)] p-4">
+            <p class="text-2xl font-semibold">{desde(7)}</p>
+            <p class="mt-1 text-[0.8rem] text-[var(--text-mute)]">Últimos 7 días</p>
+          </div>
+          <div class="rounded-xl border border-[var(--border)] p-4">
+            <p class="text-2xl font-semibold">{leads.length}</p>
+            <p class="mt-1 text-[0.8rem] text-[var(--text-mute)]">Guardados (últimos 300)</p>
+          </div>
+          <div
+            class={`rounded-xl border p-4 ${pendientes.length ? 'border-[var(--color-gold-600)] bg-[#fdf8ec]' : 'border-[var(--border)]'}`}
+          >
+            <p class="text-2xl font-semibold">{pendientes.length}</p>
+            <p class="mt-1 text-[0.8rem] text-[var(--text-mute)]">Sin llegar al CRM</p>
+          </div>
+        </div>
+      </section>
+
+      {pendientes.length > 0 && (
+        <section class="container-x mt-6">
+          <div class="rounded-xl border border-[var(--color-gold-600)] bg-[#fdf8ec] p-5 text-[0.95rem]">
+            <p class="font-semibold">
+              {pendientes.length}
+              {pendientes.length === 1 ? ' lead no llegó' : ' leads no llegaron'} a AlterEstate.
+            </p>
+            <p class="mt-2 text-[var(--text-soft)]">
+              Están guardados aquí, así que no se perdieron — pero el equipo comercial no los
+              ve en el CRM. Hay que meterlos a mano, o volver a intentarlo cuando su API
+              responda. Salen marcados abajo.
+            </p>
+          </div>
+        </section>
+      )}
+
+      <section class="container-x mt-8 mb-20">
+        {leads.length === 0 ? (
+          <p class="rounded-xl border border-[var(--border)] p-6 text-[var(--text-soft)]">
+            Todavía no ha entrado ningún lead por el sitio. El primero aparecerá aquí en
+            cuanto alguien envíe el formulario.
+          </p>
+        ) : (
+          <div class="overflow-x-auto rounded-xl border border-[var(--border)]">
+            <table class="w-full min-w-[52rem] border-collapse text-left text-[0.88rem]">
+              <thead class="bg-[var(--color-bone-100)] text-[0.78rem] uppercase tracking-wide text-[var(--text-mute)]">
+                <tr>
+                  <th class="p-3 font-semibold">Fecha</th>
+                  <th class="p-3 font-semibold">Contacto</th>
+                  <th class="p-3 font-semibold">Propiedad</th>
+                  <th class="p-3 font-semibold">Asignado a</th>
+                  <th class="p-3 font-semibold">Origen</th>
+                  <th class="p-3 font-semibold">CRM</th>
+                </tr>
+              </thead>
+              <tbody>
+                {leads.map((l) => (
+                  <tr class="border-t border-[var(--border)] align-top">
+                    <td class="whitespace-nowrap p-3 text-[var(--text-mute)]">
+                      {fecha(l.creado_en)}
+                    </td>
+                    <td class="p-3">
+                      <span class="font-semibold">{l.nombre}</span>
+                      <br />
+                      <a class="underline underline-offset-2" href={`tel:${l.telefono}`}>
+                        {l.telefono}
+                      </a>
+                      <br />
+                      <a class="underline underline-offset-2" href={`mailto:${l.email}`}>
+                        {l.email}
+                      </a>
+                      {l.mensaje && (
+                        <p class="mt-2 max-w-[22rem] text-[0.82rem] text-[var(--text-soft)]">
+                          {l.mensaje}
+                        </p>
+                      )}
+                    </td>
+                    <td class="p-3">
+                      {l.propiedad_nombre ?? '—'}
+                      {l.pagina && (
+                        <>
+                          <br />
+                          <a
+                            class="text-[0.8rem] underline underline-offset-2"
+                            href={l.pagina}
+                            rel="nofollow noopener"
+                            target="_blank"
+                          >
+                            Ver la página
+                          </a>
+                        </>
+                      )}
+                    </td>
+                    <td class="p-3">{l.asignado_a ?? '—'}</td>
+                    <td class="p-3 text-[0.82rem] text-[var(--text-soft)]">
+                      {l.utm_source ? `${l.utm_source}${l.utm_medium ? ' / ' + l.utm_medium : ''}` : 'Directo'}
+                      {l.utm_campaign && (
+                        <>
+                          <br />
+                          {l.utm_campaign}
+                        </>
+                      )}
+                    </td>
+                    <td class="p-3">
+                      <span
+                        class={`inline-block rounded-full px-2.5 py-1 text-[0.75rem] ${
+                          l.crm_estado === 'enviado'
+                            ? 'bg-[var(--color-brand-500)] text-white'
+                            : 'bg-[var(--color-gold-600)] text-white'
+                        }`}
+                      >
+                        {ETIQUETA[l.crm_estado] ?? l.crm_estado}
+                      </span>
+                      {l.crm_detalle && (
+                        <p class="mt-2 max-w-[16rem] text-[0.75rem] text-[var(--text-mute)]">
+                          {l.crm_detalle}
+                        </p>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </>
+  )}
+</Base>

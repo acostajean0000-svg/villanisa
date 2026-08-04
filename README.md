@@ -17,9 +17,20 @@ npm run build          # genera dist/
 | Variable | Para qué | Dónde |
 |---|---|---|
 | `ALTERESTATE_DOMAIN` | Identifica la empresa ante la API (lectura de propiedades) | Build |
-| `ALTERESTATE_API_KEY` | Envío de leads al CRM. **Nunca exponer al cliente** | Solo servidor |
+| `ALTERESTATE_API_KEY` | Envío de leads al CRM. **Nunca exponer al cliente** | Solo servidor · sensible |
+| `ALTERESTATE_ROUND_ROBIN_UID` | Regla de reparto por turnos para los leads sin asesor | Solo servidor |
+| `ALTERESTATE_VIA_ID` | Vía propia del sitio, para separarlo de villanisainmobiliaria.com | Solo servidor |
+| `PANEL_USUARIO` / `PANEL_CLAVE` | Puerta de `/panel` y de la API de contenido | Solo servidor · la clave, sensible |
+| `BLOB_READ_WRITE_TOKEN` | Almacén de los textos propios de las fichas | Solo servidor · sensible |
+| `DEPLOY_HOOK_URL` | Republica el sitio al guardar textos en el panel | Solo servidor · sensible |
+| `SUPABASE_URL` | Almacén propio de leads (Fase 2) | Solo servidor |
+| `SUPABASE_SERVICE_KEY` | Escritura y lectura de ese almacén. **Salta la seguridad de la tabla: jamás en el navegador** | Solo servidor · sensible |
 
 En Vercel se configuran en *Project Settings → Environment Variables*.
+
+Sin `SUPABASE_URL` y `SUPABASE_SERVICE_KEY` el sitio sigue funcionando: los leads
+van directos a AlterEstate como antes, y `/panel/leads` lo avisa en pantalla.
+La tabla se crea con `supabase/01-leads.sql`.
 
 ## Estructura
 
