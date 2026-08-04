@@ -562,3 +562,103 @@ export async function getZonasPublicadas(): Promise<Set<string>> {
  * conectar mientras los alquileres se publicaban como ventas.
  * La agrupación real vive en getZonasConDatos().
  */
+
+/* ====================================================================== *
+ * Títulos de ficha
+ *
+ * Medido sobre las 222 páginas publicadas: la mediana del <title> era de 83
+ * caracteres y el más largo llegaba a 103, cuando Google corta cerca de 60.
+ * El patrón anterior —"Apartamento en venta en Prolongación Av. 27 De
+ * Febrero, Santo Domingo Oeste — 3 hab, 123 m² | Villanisa"— se mostraba
+ * cortado justo antes de los metros y de la marca: el usuario nunca llegaba a
+ * ver el dato que decide el clic.
+ *
+ * Y diez títulos estaban repetidos entre 23 páginas —cuatro fichas distintas
+ * compartían uno exacto—, así que competían entre ellas por la misma consulta.
+ * ====================================================================== */
+
+/**
+ * "Prolongación Av. 27 De Febrero" son 30 caracteres, la mitad del espacio
+ * útil de un título. Abreviarlo es lo que hace que quepan los metros.
+ */
+export function sectorCorto(s: string): string {
+  return (s || '')
+    .replace(/^Prolongaci[oó]n\s+(Av\.?|Avenida)?\s*/i, 'Prol. ')
+    .replace(/^Autopista\s+/i, 'Aut. ')
+    .replace(/^Avenida\s+/i, 'Av. ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * El título antes de resolver repeticiones.
+ *
+ * Se quita la ciudad: el sector ya la implica para quien busca, y eran ~20
+ * caracteres. Y se quita "en venta", que es el caso por defecto de casi todo
+ * el inventario; el alquiler, que sí es la excepción, se marca delante para
+ * que se vea aunque el título se corte.
+ */
+export function tituloBase(p: PropertyListItem): string {
+  const tipo = (p.category?.name ?? 'Propiedad').replace(/s$/, '');
+  const zona = sectorCorto(p.sector || p.city || '');
+  let t = tipo;
+  if (p.room) t += ` ${p.room} hab`;
+  if (zona) t += ` en ${zona}`;
+  if (p.property_area && p.property_area > 0) t += ` — ${Math.round(p.property_area)} m²`;
+  return isForSale(p) ? t : `Alquiler: ${t}`;
+}
+
+/**
+ * Títulos únicos para todo el inventario, calculados una sola vez.
+ *
+ * Una ficha no puede saber por sí sola si su título choca con el de otra, así
+ * que la unicidad se resuelve aquí, con la lista completa delante. A los
+ * grupos que colisionan se les añade el primer dato que los separe: parqueos,
+ * luego baños, luego precio.
+ *
+ * Si dos fichas coinciden hasta en el precio, se dejan iguales a propósito:
+ * a esas alturas no son dos propiedades parecidas, son la misma cargada dos
+ * veces, y eso se arregla en el CRM y no inventando una diferencia aquí.
+ */
+let titulosCache: Map<string, string> | null = null;
+
+export async function getTitulos(): Promise<Map<string, string>> {
+  if (titulosCache) return titulosCache;
+
+  const props = await getAllProperties();
+  const porBase = new Map<string, PropertyListItem[]>();
+  for (const p of props) {
+    const b = tituloBase(p);
+    if (!porBase.has(b)) porBase.set(b, []);
+    porBase.get(b)!.push(p);
+  }
+
+  const desempates: Array<(p: PropertyListItem) => string> = [
+    (p) => (p.parkinglot ? `${p.parkinglot} parqueo${p.parkinglot > 1 ? 's' : ''}` : ''),
+    (p) => (p.bathroom ? `${p.bathroom} baño${p.bathroom > 1 ? 's' : ''}` : ''),
+    (p) => {
+      const { amount, currency } = priceOf(p);
+      return amount ? formatPrice(amount, currency) : '';
+    },
+  ];
+
+  const out = new Map<string, string>();
+  for (const [base, grupo] of porBase) {
+    if (grupo.length === 1) {
+      out.set(grupo[0].uid, base);
+      continue;
+    }
+    let actual = grupo.map((p) => ({ p, t: base }));
+    for (const dato of desempates) {
+      if (new Set(actual.map((x) => x.t)).size === actual.length) break;
+      actual = actual.map((x) => {
+        const s = dato(x.p);
+        return { p: x.p, t: s ? `${x.t}, ${s}` : x.t };
+      });
+    }
+    for (const x of actual) out.set(x.p.uid, x.t);
+  }
+
+  titulosCache = out;
+  return out;
+}

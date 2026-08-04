@@ -20,6 +20,8 @@ import {
   getTasaDOP,
   precioPublico,
   precioMostrable,
+  getTitulos,
+  tituloBase,
   type PropertyListItem,
 } from '../../lib/alterestate';
 import { getOverrides } from '../../lib/contenido';
@@ -131,26 +133,19 @@ const tipo = detail.category?.name ?? 'Propiedad';
  * El <title> se arma siempre desde datos estructurados, con la forma que la
  * gente teclea en Google. El H1 conserva el nombre del agente solo si aporta.
  */
-const especificaciones = [
-  detail.room ? `${detail.room} hab` : null,
-  detail.property_area ? `${detail.property_area} m²` : null,
-].filter(Boolean).join(', ');
-
 const enVenta = isForSale(detail as PropertyListItem);
 const operacion = enVenta ? 'en venta' : 'en alquiler';
-const base = `${tipo.replace(/s$/, '')} ${operacion} en ${ubicacion}`;
 
 /**
- * Las especificaciones se añaden SIEMPRE, no solo cuando sobra espacio.
+ * El <title>, corto y único.
  *
- * La versión anterior las omitía si `base` pasaba de 46 caracteres, para no
- * exceder el corte visual de Google. El efecto real fue peor que el problema
- * que evitaba: 23 de cada 60 fichas acabaron compartiendo título exacto con
- * otra —cinco propiedades distintas como "Apartamento en venta en Aut.
- * Duarte, Santo Domingo Oeste"—, compitiendo entre sí por la misma consulta.
- * Un título recortado en pantalla sigue siendo único para el índice.
+ * La unicidad no se puede decidir desde una ficha: hace falta ver el
+ * inventario entero a la vez. Por eso se calcula en getTitulos() y aquí solo
+ * se consulta. El respaldo con tituloBase() cubre el caso de una ficha que no
+ * estuviera en el listado al construir.
  */
-const tituloSEO = [base, especificaciones].filter(Boolean).join(' — ');
+const titulos = await getTitulos();
+const tituloSEO = titulos.get(detail.uid) ?? tituloBase(detail as PropertyListItem);
 
 /** El CRM trae emoji, comillas y adornos: fuera del H1. */
 const limpiarNombre = (s: string) =>
