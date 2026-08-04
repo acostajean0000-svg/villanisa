@@ -25,12 +25,29 @@ npm run build          # genera dist/
 | `DEPLOY_HOOK_URL` | Republica el sitio al guardar textos en el panel | Solo servidor · sensible |
 | `SUPABASE_URL` | Almacén propio de leads (Fase 2) | Solo servidor |
 | `SUPABASE_SERVICE_KEY` | Escritura y lectura de ese almacén. **Salta la seguridad de la tabla: jamás en el navegador** | Solo servidor · sensible |
+| `ALERTA_MINUTOS` | Minutos sin atender antes de avisar (por defecto 10) | Solo servidor |
+| `CRON_SECRET` | Autoriza al reloj de GitHub Actions a llamar a `/api/alertas` | Solo servidor · sensible |
+| `ALERTA_TELEFONOS` | Números que reciben el aviso, separados por coma, con código de país | Solo servidor |
+| `WHATSAPP_TOKEN` | Token permanente de la Cloud API de Meta | Solo servidor · sensible |
+| `WHATSAPP_PHONE_ID` | Phone number ID del número emisor | Solo servidor |
+| `WHATSAPP_PLANTILLA` | Nombre de la plantilla aprobada (4 parámetros, en este orden: nombre, teléfono, propiedad, minutos) | Solo servidor |
+| `WHATSAPP_IDIOMA` | Código de idioma de la plantilla (por defecto `es`) | Solo servidor |
 
 En Vercel se configuran en *Project Settings → Environment Variables*.
 
 Sin `SUPABASE_URL` y `SUPABASE_SERVICE_KEY` el sitio sigue funcionando: los leads
 van directos a AlterEstate como antes, y `/panel/leads` lo avisa en pantalla.
-La tabla se crea con `supabase/01-leads.sql`.
+La tabla se crea con `supabase/01-leads.sql` y `supabase/02-atencion.sql`.
+
+Sin las variables de WhatsApp, la Fase 3 sigue siendo útil: el botón «Ya lo
+contacté», el tiempo de respuesta y los pendientes marcados funcionan igual;
+lo único que no sale es el aviso automático.
+
+**El reloj no está en Vercel.** El proyecto corre en el plan Hobby, donde los
+cron jobs solo pueden ejecutarse una vez al día — una expresión más frecuente
+hace fallar el despliegue. Vive en `.github/workflows/alertas.yml` y llama a
+`/api/alertas` cada 10 minutos con `CRON_SECRET` guardado como secreto del
+repositorio en GitHub.
 
 ## Estructura
 

@@ -43,6 +43,10 @@ export interface LeadGuardado extends LeadNuevo {
   crm_estado: 'pendiente' | 'enviado' | 'rechazado' | 'sin_clave';
   crm_detalle: string | null;
   crm_enviado_en: string | null;
+  // Fase 3
+  atendido_en: string | null;
+  atendido_por: string | null;
+  alertado_en: string | null;
 }
 
 const TIEMPO_LIMITE = 8_000;
@@ -143,4 +147,99 @@ export async function listarLeads(limite = 200): Promise<LeadGuardado[]> {
   );
   if (!res.ok) throw new Error(`El almacén respondió ${res.status}`);
   return (await res.json()) as LeadGuardado[];
+}
+
+/* ====================================================================== *
+ * Fase 3 · Atención y alertas
+ * ====================================================================== */
+
+/**
+ * Marca un lead como atendido.
+ *
+ * `atendido_en` no se sobrescribe si ya tiene valor: lo que interesa medir es
+ * el PRIMER contacto, y permitir que un segundo clic lo reescriba borraría
+ * justo el número que da sentido a toda esta fase. Por eso el filtro incluye
+ * `atendido_en=is.null`.
+ *
+ * Devuelve cuántas filas cambió: 0 significa "ya estaba atendido", que no es
+ * un error y el panel debe poder distinguirlo.
+ */
+export async function marcarAtendido(id: string, quien: string): Promise<number> {
+  const cred = credenciales();
+  if (!cred) throw new Error('El almacén de leads no está configurado.');
+
+  const res = await fetch(
+    `${cred.url}/rest/v1/leads?id=eq.${encodeURIComponent(id)}&atendido_en=is.null`,
+    {
+      method: 'PATCH',
+      headers: cabeceras(cred.clave, { Prefer: 'return=representation' }),
+      body: JSON.stringify({ atendido_en: new Date().toISOString(), atendido_por: quien.slice(0, 80) }),
+      signal: AbortSignal.timeout(TIEMPO_LIMITE),
+    }
+  );
+  if (!res.ok) throw new Error(`El almacén respondió ${res.status}`);
+  return ((await res.json()) as unknown[]).length;
+}
+
+/**
+ * Leads que llevan más de `minutos` sin atender y de los que no se ha avisado.
+ *
+ * Los dos filtros van juntos a propósito. Sin `alertado_en=is.null` el aviso se
+ * repetiría en cada pasada del reloj, y un equipo al que le suena el mismo
+ * contacto cada cinco minutos silencia el canal en un día.
+ */
+export async function leadsSinAtender(minutos: number): Promise<LeadGuardado[]> {
+  const cred = credenciales();
+  if (!cred) throw new Error('El almacén de leads no está configurado.');
+
+  const limite = new Date(Date.now() - minutos * 60_000).toISOString();
+  const res = await fetch(
+    `${cred.url}/rest/v1/leads?select=*` +
+      `&atendido_en=is.null&alertado_en=is.null&creado_en=lt.${encodeURIComponent(limite)}` +
+      `&order=creado_en.asc&limit=25`,
+    { headers: cabeceras(cred.clave), signal: AbortSignal.timeout(TIEMPO_LIMITE) }
+  );
+  if (!res.ok) throw new Error(`El almacén respondió ${res.status}`);
+  return (await res.json()) as LeadGuardado[];
+}
+
+/** Anota que ya se avisó de este lead, para no repetir el aviso. */
+export async function marcarAlertado(id: string): Promise<void> {
+  const cred = credenciales();
+  if (!cred) return;
+  try {
+    await fetch(`${cred.url}/rest/v1/leads?id=eq.${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: cabeceras(cred.clave, { Prefer: 'return=minimal' }),
+      body: JSON.stringify({ alertado_en: new Date().toISOString() }),
+      signal: AbortSignal.timeout(TIEMPO_LIMITE),
+    });
+  } catch (err) {
+    console.error('[leads] no se pudo anotar la alerta:', (err as Error).message);
+  }
+}
+
+/**
+ * Minutos hasta el primer contacto. null si todavía no se ha atendido.
+ */
+export function minutosDeRespuesta(l: LeadGuardado): number | null {
+  if (!l.atendido_en) return null;
+  return Math.max(
+    0,
+    Math.round((new Date(l.atendido_en).getTime() - new Date(l.creado_en).getTime()) / 60_000)
+  );
+}
+
+/**
+ * Mediana, no promedio.
+ *
+ * Un solo lead contestado tres días tarde arrastra el promedio y da la
+ * impresión de que el equipo entero responde mal. La mediana dice cuánto tarda
+ * el caso típico, que es lo que hay que mejorar.
+ */
+export function medianaRespuesta(leads: LeadGuardado[]): number | null {
+  const v = leads.map(minutosDeRespuesta).filter((n): n is number => n !== null).sort((a, b) => a - b);
+  if (!v.length) return null;
+  const m = Math.floor(v.length / 2);
+  return v.length % 2 ? v[m] : Math.round((v[m - 1] + v[m]) / 2);
 }

@@ -1,0 +1,37 @@
+# Reloj de los avisos de leads sin atender — Fase 3.
+#
+# Por qué no está en Vercel: el proyecto corre en el plan Hobby, y ahí los
+# cron jobs SOLO pueden ejecutarse una vez al día. Una expresión más frecuente
+# no es que funcione mal — hace fallar el despliegue entero con el error
+# "Hobby accounts are limited to daily cron jobs". Así que el reloj vive aquí,
+# que es gratis y ya existe.
+#
+# Aviso honesto sobre la puntualidad: los horarios de GitHub Actions no son
+# exactos. En horas de mucha carga pueden retrasarse. En la práctica un lead
+# sin atender se avisa entre 10 y 30 minutos después de entrar, no clavado a
+# los 10. Si algún día hace falta puntualidad de reloj, hay dos caminos:
+# el plan Pro de Vercel, o un servicio de cron externo gratuito apuntando a
+# la misma URL.
+name: Avisar de leads sin atender
+
+on:
+  schedule:
+    # Cada 10 minutos. Con el umbral de aviso en 10, el peor caso es ~20.
+    - cron: '*/10 * * * *'
+  # Permite dispararlo a mano desde la pestaña Actions para probarlo.
+  workflow_dispatch:
+
+jobs:
+  revisar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Llamar al revisor de leads
+        run: |
+          codigo=$(curl -sS -o /tmp/salida.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://villanisa.com.do/api/alertas)
+          echo "HTTP $codigo"
+          cat /tmp/salida.json
+          # Un fallo tiene que verse en rojo en GitHub, no pasar en silencio:
+          # un reloj que falla sin avisar es peor que no tener reloj.
+          [ "$codigo" = "200" ]

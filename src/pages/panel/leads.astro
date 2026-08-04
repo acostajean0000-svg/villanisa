@@ -10,8 +10,14 @@
  * eso aquí no hay ninguna llamada desde el navegador, al revés que en /panel.
  */
 import Base from '../../layouts/Base.astro';
-import { verificarBasic, RETO } from '../../lib/auth';
-import { listarLeads, almacenConfigurado, type LeadGuardado } from '../../lib/leads';
+import { verificarBasic, RETO, env } from '../../lib/auth';
+import {
+  listarLeads,
+  almacenConfigurado,
+  minutosDeRespuesta,
+  medianaRespuesta,
+  type LeadGuardado,
+} from '../../lib/leads';
 
 export const prerender = false;
 
@@ -45,6 +51,22 @@ const desde = (dias: number) =>
   leads.filter((l) => ahora - new Date(l.creado_en).getTime() < dias * 86_400_000).length;
 
 const pendientes = leads.filter((l) => l.crm_estado !== 'enviado');
+
+/* ---- Fase 3 · atención ---- */
+const UMBRAL = Number(env('ALERTA_MINUTOS') || 10) || 10;
+const sinAtender = leads.filter((l) => !l.atendido_en);
+const mediana = medianaRespuesta(leads);
+
+/** Minutos que un lead lleva esperando, para los que aún nadie ha tocado. */
+const esperando = (l: LeadGuardado) =>
+  Math.round((ahora - new Date(l.creado_en).getTime()) / 60_000);
+
+/** "8 min", "2 h 15 min", "3 d" — leerlo no debería costar trabajo. */
+const enTiempo = (min: number) => {
+  if (min < 60) return `${min} min`;
+  if (min < 1440) return `${Math.floor(min / 60)} h ${min % 60} min`;
+  return `${Math.floor(min / 1440)} d`;
+};
 
 const fecha = (iso: string) =>
   new Date(iso).toLocaleString('es-DO', {
@@ -108,7 +130,7 @@ const ETIQUETA: Record<LeadGuardado['crm_estado'], string> = {
   {configurado && !error && (
     <>
       <section class="container-x mt-10">
-        <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <div class="rounded-xl border border-[var(--border)] p-4">
             <p class="text-2xl font-semibold">{desde(1)}</p>
             <p class="mt-1 text-[0.8rem] text-[var(--text-mute)]">Últimas 24 horas</p>
@@ -117,9 +139,20 @@ const ETIQUETA: Record<LeadGuardado['crm_estado'], string> = {
             <p class="text-2xl font-semibold">{desde(7)}</p>
             <p class="mt-1 text-[0.8rem] text-[var(--text-mute)]">Últimos 7 días</p>
           </div>
+          {/*
+            La mediana, no el promedio: un lead contestado tres días tarde
+            arrastraría el promedio y haría parecer que el equipo entero
+            responde mal. Ver medianaRespuesta() en src/lib/leads.ts.
+          */}
           <div class="rounded-xl border border-[var(--border)] p-4">
-            <p class="text-2xl font-semibold">{leads.length}</p>
-            <p class="mt-1 text-[0.8rem] text-[var(--text-mute)]">Guardados (últimos 300)</p>
+            <p class="text-2xl font-semibold">{mediana === null ? '—' : enTiempo(mediana)}</p>
+            <p class="mt-1 text-[0.8rem] text-[var(--text-mute)]">Tiempo de respuesta típico</p>
+          </div>
+          <div
+            class={`rounded-xl border p-4 ${sinAtender.length ? 'border-[var(--color-brand-500)] bg-[var(--color-brand-50)]' : 'border-[var(--border)]'}`}
+          >
+            <p class="text-2xl font-semibold">{sinAtender.length}</p>
+            <p class="mt-1 text-[0.8rem] text-[var(--text-mute)]">Sin atender</p>
           </div>
           <div
             class={`rounded-xl border p-4 ${pendientes.length ? 'border-[var(--color-gold-600)] bg-[#fdf8ec]' : 'border-[var(--border)]'}`}
@@ -157,6 +190,7 @@ const ETIQUETA: Record<LeadGuardado['crm_estado'], string> = {
             <table class="w-full min-w-[52rem] border-collapse text-left text-[0.88rem]">
               <thead class="bg-[var(--color-bone-100)] text-[0.78rem] uppercase tracking-wide text-[var(--text-mute)]">
                 <tr>
+                  <th class="p-3 font-semibold">Atención</th>
                   <th class="p-3 font-semibold">Fecha</th>
                   <th class="p-3 font-semibold">Contacto</th>
                   <th class="p-3 font-semibold">Propiedad</th>
@@ -167,7 +201,38 @@ const ETIQUETA: Record<LeadGuardado['crm_estado'], string> = {
               </thead>
               <tbody>
                 {leads.map((l) => (
-                  <tr class="border-t border-[var(--border)] align-top">
+                  <tr
+                    class={`border-t border-[var(--border)] align-top ${
+                      !l.atendido_en && esperando(l) >= UMBRAL ? 'bg-[#fdf8ec]' : ''
+                    }`}
+                  >
+                    <td class="whitespace-nowrap p-3">
+                      {l.atendido_en ? (
+                        <>
+                          <span class="font-semibold text-[var(--color-brand-500)]">
+                            {enTiempo(minutosDeRespuesta(l) ?? 0)}
+                          </span>
+                          <br />
+                          <span class="text-[0.75rem] text-[var(--text-mute)]">
+                            {l.atendido_por ?? 'atendido'}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            class="rounded-full bg-[var(--color-brand-500)] px-3 py-1.5 text-[0.78rem] text-white"
+                            data-atender={l.id}
+                          >
+                            Ya lo contacté
+                          </button>
+                          <br />
+                          <span class="text-[0.75rem] text-[var(--text-mute)]">
+                            esperando {enTiempo(esperando(l))}
+                          </span>
+                        </>
+                      )}
+                    </td>
                     <td class="whitespace-nowrap p-3 text-[var(--text-mute)]">
                       {fecha(l.creado_en)}
                     </td>
@@ -236,6 +301,34 @@ const ETIQUETA: Record<LeadGuardado['crm_estado'], string> = {
           </div>
         )}
       </section>
+
+      <script is:inline>
+        // "Ya lo contacté". Sin framework: es un botón que manda un id.
+        document.addEventListener('click', async (e) => {
+          const b = e.target.closest('[data-atender]');
+          if (!b) return;
+          const original = b.textContent;
+          b.disabled = true;
+          b.textContent = 'Guardando…';
+          try {
+            const r = await fetch('/api/atendido', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: b.dataset.atender }),
+            });
+            const d = await r.json();
+            if (!d.ok) throw new Error(d.error || 'no se pudo guardar');
+            // Se recarga para que el tiempo de respuesta y la mediana salgan
+            // recalculados: mostrar un "listo" y dejar los números viejos
+            // haría dudar de si de verdad se guardó.
+            location.reload();
+          } catch (err) {
+            b.disabled = false;
+            b.textContent = original;
+            alert('No se pudo guardar: ' + err.message + '\nInténtalo otra vez.');
+          }
+        });
+      </script>
     </>
   )}
 </Base>
