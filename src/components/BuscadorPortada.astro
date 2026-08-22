@@ -201,12 +201,19 @@ const claseSelect =
     <!-- Vitrina -->
     {
       vitrina.length > 0 && (
-        <div id="vitrina" class="relative border-t border-[var(--border)] bg-[var(--color-bone-100)] lg:border-t-0 lg:border-l">
-          <div class="relative aspect-[16/10] lg:h-full lg:min-h-[430px]">
+        <div id="vitrina" class="flex flex-col border-t border-[var(--border)] bg-[var(--color-bone-100)] lg:border-t-0 lg:border-l">
+          {/*
+            La zona de imagen es flex-1 y las miniaturas una fila de altura
+            fija DENTRO de la misma columna. La versión anterior le daba a la
+            imagen el 100% de la celda (lg:h-full) y las miniaturas quedaban
+            después: la tarjeta, con overflow-hidden, se las tragaba junto con
+            la franja del precio — la vitrina parecía una foto fija.
+          */}
+          <div class="relative aspect-[16/10] lg:aspect-auto lg:min-h-[360px] lg:flex-1">
             {vitrina.map((v, i) => (
               <a
                 href={v.href}
-                class="lamina absolute inset-0 transition-opacity duration-700"
+                class="lamina absolute inset-0 overflow-hidden transition-opacity duration-700"
                 style={`opacity:${i === 0 ? 1 : 0};pointer-events:${i === 0 ? 'auto' : 'none'}`}
                 data-i={i}
                 aria-hidden={i === 0 ? undefined : 'true'}
@@ -215,7 +222,7 @@ const claseSelect =
                 <img
                   src={v.img}
                   alt={`${v.tipo} en ${v.zona}`}
-                  class="h-full w-full object-cover"
+                  class="foto-vitrina h-full w-full object-cover"
                   loading={i === 0 ? 'eager' : 'lazy'}
                   decoding="async"
                 />
@@ -249,6 +256,28 @@ const claseSelect =
     }
   </div>
 </section>
+
+<style>
+  /* Movimiento lento sobre la foto activa (efecto Ken Burns): es lo que hace
+     que la vitrina se sienta viva incluso entre un cambio y el siguiente. */
+  .lamina[aria-hidden='false'] .foto-vitrina,
+  .lamina:not([aria-hidden]) .foto-vitrina {
+    animation: acercar 10s ease-out forwards;
+  }
+  @keyframes acercar {
+    from {
+      transform: scale(1);
+    }
+    to {
+      transform: scale(1.07);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .foto-vitrina {
+      animation: none !important;
+    }
+  }
+</style>
 
 <script is:inline>
   (() => {
