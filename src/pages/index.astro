@@ -3,6 +3,7 @@ import Base from '../layouts/Base.astro';
 import PropertyCard from '../components/PropertyCard.astro';
 import LeadForm from '../components/LeadForm.astro';
 import BannerEquipo from '../components/BannerEquipo.astro';
+import BuscadorPortada from '../components/BuscadorPortada.astro';
 import { getAllProperties, getZonasConDatos, type ZonaPublicada, getTasaDOP, usdOf, precioPlausible } from '../lib/alterestate';
 
 const props = await getAllProperties();
@@ -60,6 +61,9 @@ const pilares = [
       </div>
     </div>
   </section>
+
+  <!-- Buscador + vitrina: el formato de portal, con el motor de /propiedades/ -->
+  <BuscadorPortada />
 
   <!-- Destacadas -->
   {

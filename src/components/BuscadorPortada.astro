@@ -1,0 +1,227 @@
+---
+/**
+ * Buscador de portada + vitrina de propiedades.
+ *
+ * El formato clásico de portal (SuperCasas): a la izquierda el filtro, a la
+ * derecha una propiedad grande rotando. Con una decisión de arquitectura que
+ * lo hace casi gratis: el formulario NO filtra nada aquí — envía a
+ * /propiedades/ con los mismos parámetros de URL que esa página ya lee
+ * (?tipo=&ciudad=&hab=&precio=). Un solo motor de filtrado en todo el sitio;
+ * si mañana cambia un criterio, se cambia en un lugar.
+ *
+ * Por eso los <option> se generan con el MISMO slugify y las MISMAS bandas de
+ * precio que usa /propiedades/: un valor distinto aquí sería un filtro que
+ * llega vacío allá.
+ */
+import {
+  getAllProperties,
+  getTasaDOP,
+  precioPlausible,
+  precioPublico,
+  usdOf,
+  imageOf,
+  aeImage,
+  slugify,
+  isForSale,
+} from '../lib/alterestate';
+
+const props = await getAllProperties();
+const tasa = await getTasaDOP();
+
+const tipos = [...new Set(props.map((p) => p.category?.name).filter(Boolean))].sort() as string[];
+const ciudades = [...new Set(props.map((p) => p.city).filter(Boolean))].sort() as string[];
+
+// Accesos de un toque, como la columna de categorías del portal — pero solo
+// a lo que existe: cada chip lleva su conteo real y no se pinta si hay cero.
+const categorias = tipos
+  .map((t) => ({ t, n: props.filter((p) => p.category?.name === t).length }))
+  .filter((c) => c.n > 0)
+  .sort((a, b) => b.n - a.n)
+  .slice(0, 6);
+
+// La vitrina: 5 con foto y precio publicable, las más caras primero.
+const vitrina = [...props]
+  .filter((p) => p.featured_image && isForSale(p))
+  .filter((p) => precioPlausible(p, tasa))
+  .sort((a, b) => (usdOf(b, tasa) ?? 0) - (usdOf(a, tasa) ?? 0))
+  .slice(0, 5)
+  .map((p) => ({
+    href: `/propiedades/${p.slug}/`,
+    img: aeImage(imageOf(p)!, 900, { height: 560, fit: 'cover', quality: 75 }),
+    thumb: aeImage(imageOf(p)!, 200, { height: 130, fit: 'cover', quality: 60 }),
+    tipo: (p.category?.name ?? 'Propiedad').replace(/s$/, ''),
+    zona: p.sector || p.city || '',
+    precio: precioPublico(p, tasa),
+  }));
+---
+
+<section class="container-x mt-16" aria-label="Buscar propiedades">
+  <div class="card grid gap-0 overflow-hidden p-0 lg:grid-cols-[380px_1fr]">
+    <!-- Filtro -->
+    <form
+      action="/propiedades/"
+      method="get"
+      class="flex flex-col gap-3.5 p-7 md:p-9"
+      aria-label="Filtro de búsqueda"
+    >
+      <h2 class="text-[1.6rem] leading-tight">
+        Busca tu <span class="text-[var(--color-brand-500)]">propiedad</span>
+      </h2>
+
+      <select name="tipo" aria-label="Tipo de propiedad" class="rounded-full border border-[var(--border-control)] bg-[var(--surface-raised)] px-4 py-3 text-[0.92rem]">
+        <option value="">Tipo de propiedad</option>
+        {tipos.map((t) => <option value={slugify(t)}>{t}</option>)}
+      </select>
+
+      <select name="ciudad" aria-label="Ciudad" class="rounded-full border border-[var(--border-control)] bg-[var(--surface-raised)] px-4 py-3 text-[0.92rem]">
+        <option value="">Todas las ciudades</option>
+        {ciudades.map((c) => <option value={slugify(c)}>{c}</option>)}
+      </select>
+
+      <div class="grid grid-cols-2 gap-3">
+        <select name="hab" aria-label="Habitaciones" class="rounded-full border border-[var(--border-control)] bg-[var(--surface-raised)] px-4 py-3 text-[0.92rem]">
+          <option value="">Habitaciones</option>
+          <option value="1">1+</option>
+          <option value="2">2+</option>
+          <option value="3">3+</option>
+          <option value="4">4+</option>
+        </select>
+        <select name="precio" aria-label="Presupuesto" class="rounded-full border border-[var(--border-control)] bg-[var(--surface-raised)] px-4 py-3 text-[0.92rem]">
+          <option value="">Presupuesto</option>
+          <option value="0-100000">Hasta US$100k</option>
+          <option value="100000-200000">US$100k – 200k</option>
+          <option value="200000-400000">US$200k – 400k</option>
+          <option value="400000-99999999">US$400k+</option>
+        </select>
+      </div>
+
+      <button type="submit" class="btn btn-primary mt-1 w-full">Buscar</button>
+
+      {
+        categorias.length > 0 && (
+          <div class="mt-3 border-t border-[var(--border)] pt-4">
+            <p class="text-[0.75rem] uppercase tracking-wide text-[var(--text-mute)]">Directo a</p>
+            <div class="mt-2.5 flex flex-wrap gap-2">
+              {categorias.map((c) => (
+                <a
+                  href={`/propiedades/?tipo=${slugify(c.t)}`}
+                  class="rounded-full border border-[var(--border)] px-3.5 py-1.5 text-[0.85rem] transition-colors hover:border-[var(--color-brand-500)] hover:text-[var(--color-brand-500)]"
+                >
+                  {c.t} <span class="text-[var(--text-mute)]">{c.n}</span>
+                </a>
+              ))}
+            </div>
+          </div>
+        )
+      }
+    </form>
+
+    <!-- Vitrina -->
+    {
+      vitrina.length > 0 && (
+        <div id="vitrina" class="relative bg-[var(--color-bone-100)]">
+          <div class="relative aspect-[16/10] lg:h-full lg:min-h-[430px]">
+            {vitrina.map((v, i) => (
+              <a
+                href={v.href}
+                class="lamina absolute inset-0 transition-opacity duration-700"
+                style={`opacity:${i === 0 ? 1 : 0};pointer-events:${i === 0 ? 'auto' : 'none'}`}
+                data-i={i}
+                aria-hidden={i === 0 ? undefined : 'true'}
+                tabindex={i === 0 ? undefined : -1}
+              >
+                <img
+                  src={v.img}
+                  alt={`${v.tipo} en ${v.zona}`}
+                  class="h-full w-full object-cover"
+                  loading={i === 0 ? 'eager' : 'lazy'}
+                  decoding="async"
+                />
+                <span class="absolute inset-x-0 bottom-0 flex flex-wrap items-baseline gap-x-3 gap-y-1 bg-[var(--color-brand-700)]/85 px-5 py-3.5 text-white backdrop-blur-sm">
+                  <span class="text-[1.02rem] font-medium">
+                    {v.tipo} en venta · {v.zona}
+                  </span>
+                  <span class="text-[1.02rem] text-[var(--color-brand-200)]">{v.precio}</span>
+                </span>
+              </a>
+            ))}
+          </div>
+
+          <div class="flex gap-2 p-3" role="tablist" aria-label="Propiedades en vitrina">
+            {vitrina.map((v, i) => (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={i === 0 ? 'true' : 'false'}
+                aria-label={`Ver ${v.tipo} en ${v.zona}`}
+                class="miniatura shrink-0 overflow-hidden rounded-lg border-2 transition-all"
+                style={`border-color:${i === 0 ? 'var(--color-brand-500)' : 'transparent'}`}
+                data-i={i}
+              >
+                <img src={v.thumb} alt="" width="88" height="58" loading="lazy" decoding="async" class="h-[58px] w-[88px] object-cover" style={`opacity:${i === 0 ? 1 : 0.65}`} />
+              </button>
+            ))}
+          </div>
+        </div>
+      )
+    }
+  </div>
+</section>
+
+<script is:inline>
+  // Rotación de la vitrina. Sin librería: mostrar una lámina, apagar las
+  // demás. Avanza sola cada 5 s, se detiene cuando el visitante toca una
+  // miniatura o posa el cursor, y no arranca si pidió reducir movimiento.
+  // Un select vacío no viaja en la URL: sin esto la búsqueda "sin filtros"
+  // llegaría como /propiedades/?tipo=&ciudad=&hab=&precio= — funciona igual,
+  // pero es una URL fea que la gente comparte tal cual.
+  document.querySelector('form[action="/propiedades/"]')?.addEventListener('submit', (e) => {
+    e.target.querySelectorAll('select').forEach((s) => {
+      if (!s.value) s.disabled = true;
+    });
+  });
+
+  (() => {
+    const caja = document.getElementById('vitrina');
+    if (!caja) return;
+    const laminas = [...caja.querySelectorAll('.lamina')];
+    const minis = [...caja.querySelectorAll('.miniatura')];
+    if (laminas.length < 2) return;
+
+    let actual = 0;
+    let reloj = null;
+
+    const mostrar = (i) => {
+      actual = i;
+      laminas.forEach((l, j) => {
+        const activa = j === i;
+        l.style.opacity = activa ? '1' : '0';
+        l.style.pointerEvents = activa ? 'auto' : 'none';
+        l.setAttribute('aria-hidden', activa ? 'false' : 'true');
+        l.tabIndex = activa ? 0 : -1;
+      });
+      minis.forEach((m, j) => {
+        m.setAttribute('aria-selected', j === i ? 'true' : 'false');
+        m.style.borderColor = j === i ? 'var(--color-brand-500)' : 'transparent';
+        m.querySelector('img').style.opacity = j === i ? '1' : '0.65';
+      });
+    };
+
+    const parar = () => {
+      if (reloj) clearInterval(reloj);
+      reloj = null;
+    };
+
+    minis.forEach((m, i) =>
+      m.addEventListener('click', () => {
+        parar(); // eligió una: la rotación deja de decidir por él
+        mostrar(i);
+      })
+    );
+    caja.addEventListener('mouseenter', parar);
+
+    if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      reloj = setInterval(() => mostrar((actual + 1) % laminas.length), 5000);
+    }
+  })();
+</script>
