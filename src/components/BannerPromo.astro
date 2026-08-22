@@ -98,7 +98,7 @@ diapositivas.push({
     <aside class="container-x mt-5" aria-label="Promoción">
       <div
         id="promo"
-        class="relative min-h-[13.5rem] overflow-hidden rounded-[var(--radius-card)] bg-[#1b2260] text-white sm:min-h-[10rem]"
+        class="relative min-h-[13.5rem] overflow-hidden rounded-[var(--radius-card)] bg-[var(--color-brand-700)] text-white sm:min-h-[10rem]"
         role="region"
         aria-roledescription="carrusel"
         aria-label="Mensajes de Villanisa"
@@ -114,7 +114,7 @@ diapositivas.push({
         >
           <path d="M0 160V96h34V60h14v36h22V78h30v82h24V44h12l6-16 6 16h12v116h30V88h40v72h22V36h44v124h26v-58h36v58h20V70h16V52h26v18h16v90h34V98h46v62h24V30h10l7-18 7 18h10v130h32v-70h38v70h22V84h42v76h26V56h36v104h28v-44h34v44h22V92h40v68h26V48h12l6-14 6 14h12v112h30v-62h38v62Z" />
         </svg>
-        <span class="pointer-events-none absolute inset-y-0 right-0 w-1/3 bg-gradient-to-l from-[#2b3aa0]/45 to-transparent" aria-hidden="true" />
+        <span class="pointer-events-none absolute inset-y-0 right-0 w-1/3 bg-gradient-to-l from-[var(--color-brand-500)]/45 to-transparent" aria-hidden="true" />
 
         {diapositivas.map((d, i) => (
           <a
@@ -130,7 +130,7 @@ diapositivas.push({
                 <span
                   class:list={[
                     'linea w-fit rounded-full px-3 py-1 text-[0.7rem] font-semibold uppercase tracking-[0.12em]',
-                    d.dorada ? 'bg-[#d02323] text-white' : 'bg-white/15 text-white',
+                    d.dorada ? 'bg-[var(--color-gold-500)] text-white' : 'bg-white/15 text-white',
                   ]}
                 >
                   {d.chip}
@@ -140,7 +140,7 @@ diapositivas.push({
                 </span>
                 <span class="linea text-[0.95rem] text-white/80 [&>strong]:font-semibold [&>strong]:text-white" set:html={d.sub} />
               </span>
-              <span class="btn linea shrink-0 !bg-white !text-[#1b2260] transition-transform group-hover:scale-[1.03]">
+              <span class="btn linea shrink-0 !bg-white !text-[var(--color-brand-700)] transition-transform group-hover:scale-[1.03]">
                 {d.cta}
               </span>
             </span>

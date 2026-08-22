@@ -446,7 +446,7 @@ Astro.response.headers.set('Cache-Control', 'no-store');
   function ficha(p: any, texto: string, propio: boolean) {
     const donde = [p.sector, p.city].filter(Boolean).join(', ');
     const sello = propio
-      ? '<span class="ml-2 rounded-full bg-[#eaf3ee] px-2.5 py-0.5 text-[0.72rem] font-semibold text-[#12402f]">texto propio</span>'
+      ? '<span class="ml-2 rounded-full bg-[#eef0f9] px-2.5 py-0.5 text-[0.72rem] font-semibold text-[#141d5c]">texto propio</span>'
       : '<span class="ml-2 rounded-full bg-[#fdf4e3] px-2.5 py-0.5 text-[0.72rem] font-semibold text-[#8a5a12]">borrador</span>';
     return `<details class="card p-5" data-uid="${p.uid}">
       <summary class="cursor-pointer list-none font-medium">${esc(p.name || p.slug)}${sello}
