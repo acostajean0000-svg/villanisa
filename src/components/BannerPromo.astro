@@ -1,20 +1,23 @@
 ---
 /**
- * Banda promocional superior — el espacio que en los portales ocupa un
- * anunciante, aquí trabajando para la casa.
+ * Banner promocional superior, rotatorio.
  *
- * SuperCasas vende ese rectángulo a una feria hipotecaria; Villanisa no tiene
- * anunciantes, tiene inventario. Así que la banda promociona la puerta de
- * entrada más ancha del negocio: el precio mínimo real y los proyectos con
- * Bono de Primera Vivienda. Los dos datos salen del inventario en cada
- * build — el "desde US$X" nunca se queda viejo ni promete algo que no existe.
+ * El espacio que en los portales ocupa un anunciante, aquí trabajando para la
+ * casa — y ahora como carrusel de mensajes: cada pocos segundos entra una
+ * pieza de información distinta, todas calculadas del inventario en el build.
+ * Nada está escrito a mano: el mensaje que se queda sin datos que lo
+ * respalden no se emite, y si ninguno los tiene, el banner desaparece.
  *
- * El enlace usa los parámetros del buscador (?pmax=100000): la banda no
- * inventa una página nueva, aterriza en el filtro que ya funciona.
+ * Los mensajes, en orden de negocio:
+ *   1. Primera vivienda (con la chapa del Bono si el CRM lo menciona)
+ *   2. La zona con más inventario activo, enlazando a su página
+ *   3. Selección alta, para el comprador de inversión
+ *   4. El equipo — la carta que los portales no tienen
  */
 import {
   getAllProperties,
   getTasaDOP,
+  getZonasConDatos,
   usdOf,
   precioPlausible,
   isForSale,
@@ -22,6 +25,7 @@ import {
 
 const props = await getAllProperties();
 const tasa = await getTasaDOP();
+const zonas = (await getZonasConDatos()).filter((z) => !z.esCiudad);
 
 const preciosVenta = props
   .filter((p) => isForSale(p) && precioPlausible(p, tasa))
@@ -29,28 +33,78 @@ const preciosVenta = props
   .filter((n): n is number => n !== null && n > 0)
   .sort((a, b) => a - b);
 
-const desde = preciosVenta[0] ?? null;
-const desdeTexto = desde ? `US$${Math.round(desde).toLocaleString('en-US')}` : null;
-
-// Cuántas fichas mencionan el bono: si el CRM deja de ofrecerlo, la banda
-// deja de prometerlo sola.
+const fmt = (n: number) => `US$${Math.round(n).toLocaleString('en-US')}`;
+const asequibles = preciosVenta.filter((n) => n <= 100_000).length;
+const premium = preciosVenta.filter((n) => n >= 300_000).length;
 const conBono = props.filter((p) =>
   /bono/i.test(`${p.name ?? ''} ${p.short_description ?? ''}`)
 ).length;
+const topZona = zonas[0] ?? null;
+const anos = new Date().getFullYear() - 1999;
 
-const asequibles = preciosVenta.filter((n) => n <= 100_000).length;
+interface Diapositiva {
+  chip: string;
+  dorada: boolean;
+  titulo: string;
+  sub: string; // HTML sencillo generado aquí mismo, nunca del CRM
+  cta: string;
+  href: string;
+}
+
+const diapositivas: Diapositiva[] = [];
+
+if (asequibles > 0) {
+  diapositivas.push({
+    chip: conBono >= 3 ? 'Aplica Bono Primera Vivienda' : 'Primera vivienda',
+    dorada: true,
+    titulo: 'Tu primera vivienda está aquí',
+    sub: `<strong>${asequibles} propiedades</strong> hasta US$100,000, desde <strong>${fmt(preciosVenta[0])}</strong> — verificadas por nuestro equipo.`,
+    cta: `Ver las ${asequibles} →`,
+    href: '/propiedades/?pmax=100000',
+  });
+}
+if (topZona) {
+  diapositivas.push({
+    chip: 'La zona más activa',
+    dorada: false,
+    titulo: `¿Buscando en ${topZona.zona}?`,
+    sub: `<strong>${topZona.n} ${topZona.tipo.toLowerCase()}</strong> en venta ahora mismo, con precios y metros reales.`,
+    cta: 'Ver la zona →',
+    href: topZona.href,
+  });
+}
+if (premium >= 3) {
+  diapositivas.push({
+    chip: 'Selección',
+    dorada: false,
+    titulo: 'Invertir con respaldo, no con folletos',
+    sub: `<strong>${premium} propiedades</strong> desde US$300,000 en las zonas de mayor demanda del país.`,
+    cta: 'Ver la selección →',
+    href: '/propiedades/?pmin=300000',
+  });
+}
+diapositivas.push({
+  chip: 'Desde 1999',
+  dorada: false,
+  titulo: `${anos} años, asesores con nombre y apellido`,
+  sub: 'Detrás de cada propiedad hay una persona que la conoce y responde por ella.',
+  cta: 'Conoce al equipo →',
+  href: '/agentes/',
+});
 ---
 
 {
-  desdeTexto && asequibles > 0 && (
+  diapositivas.length > 0 && (
     <aside class="container-x mt-5" aria-label="Promoción">
-      <a
-        href="/propiedades/?pmax=100000"
-        class="promo group relative block overflow-hidden rounded-[var(--radius-card)] bg-[var(--color-brand-700)] text-white"
+      <div
+        id="promo"
+        class="relative min-h-[13.5rem] overflow-hidden rounded-[var(--radius-card)] bg-[var(--color-brand-700)] text-white sm:min-h-[10rem]"
+        role="region"
+        aria-roledescription="carrusel"
+        aria-label="Mensajes de Villanisa"
       >
         {/* Perfil de ciudad dibujado, no una foto: cero riesgo de que salga
-            un retrato del CRM en el lugar más visible del sitio. Se desplaza
-            lentísimo para que la banda respire. */}
+            un retrato del CRM en el lugar más visible del sitio. */}
         <svg
           class="skyline pointer-events-none absolute bottom-0 left-0 h-[72%] w-[200%] text-white/[0.07]"
           viewBox="0 0 1200 160"
@@ -62,35 +116,58 @@ const asequibles = preciosVenta.filter((n) => n <= 100_000).length;
         </svg>
         <span class="pointer-events-none absolute inset-y-0 right-0 w-1/3 bg-gradient-to-l from-[var(--color-brand-500)]/40 to-transparent" aria-hidden="true" />
 
-        <span class="relative flex flex-wrap items-center justify-between gap-x-8 gap-y-4 px-6 py-5 md:px-10 md:py-6">
-          <span class="flex min-w-0 flex-col gap-1.5">
-            {conBono >= 3 && (
-              <span class="w-fit rounded-full bg-[var(--color-gold-500)] px-3 py-1 text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-white">
-                Aplica Bono Primera Vivienda
+        {diapositivas.map((d, i) => (
+          <a
+            href={d.href}
+            class:list={['dia group absolute inset-0', i === 0 && 'activa']}
+            style={`opacity:${i === 0 ? 1 : 0};pointer-events:${i === 0 ? 'auto' : 'none'}`}
+            aria-hidden={i === 0 ? 'false' : 'true'}
+            tabindex={i === 0 ? 0 : -1}
+            data-i={i}
+          >
+            <span class="relative flex h-full flex-wrap items-center justify-between gap-x-8 gap-y-4 px-6 py-5 md:px-10">
+              <span class="flex min-w-0 flex-col gap-1.5">
+                <span
+                  class:list={[
+                    'linea w-fit rounded-full px-3 py-1 text-[0.7rem] font-semibold uppercase tracking-[0.12em]',
+                    d.dorada ? 'bg-[var(--color-gold-500)] text-white' : 'bg-white/15 text-white',
+                  ]}
+                >
+                  {d.chip}
+                </span>
+                <span class="linea font-[var(--font-display)] text-[clamp(1.3rem,2.6vw,1.9rem)] leading-tight">
+                  {d.titulo}
+                </span>
+                <span class="linea text-[0.95rem] text-white/80 [&>strong]:font-semibold [&>strong]:text-white" set:html={d.sub} />
               </span>
-            )}
-            <span class="font-[var(--font-display)] text-[clamp(1.3rem,2.6vw,1.9rem)] leading-tight">
-              Tu primera vivienda está aquí
+              <span class="btn linea shrink-0 !bg-white !text-[var(--color-brand-700)] transition-transform group-hover:scale-[1.03]">
+                {d.cta}
+              </span>
             </span>
-            <span class="text-[0.95rem] text-white/80">
-              <strong class="font-semibold text-white">{asequibles} propiedades</strong> hasta
-              US$100,000, desde <strong class="font-semibold text-white">{desdeTexto}</strong>
-              — verificadas por nuestro equipo.
-            </span>
-          </span>
+          </a>
+        ))}
 
-          <span class="btn shrink-0 !bg-white !text-[var(--color-brand-700)] transition-transform group-hover:scale-[1.03]">
-            Ver las {asequibles} →
+        {diapositivas.length > 1 && (
+          <span class="absolute bottom-3 right-4 flex gap-1.5" role="tablist" aria-label="Mensajes">
+            {diapositivas.map((d, i) => (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={i === 0 ? 'true' : 'false'}
+                aria-label={d.titulo}
+                class="punto h-1.5 rounded-full bg-white transition-all"
+                style={`width:${i === 0 ? '1.4rem' : '0.375rem'};opacity:${i === 0 ? 1 : 0.45}`}
+                data-i={i}
+              />
+            ))}
           </span>
-        </span>
-      </a>
+        )}
+      </div>
     </aside>
   )
 }
 
 <style>
-  /* La ciudad avanza un 8% en 40 s, ida y vuelta: apenas perceptible, pero
-     suficiente para que la banda no parezca una imagen pegada. */
   .skyline {
     animation: pasear 40s ease-in-out infinite alternate;
   }
@@ -99,9 +176,81 @@ const asequibles = preciosVenta.filter((n) => n <= 100_000).length;
       transform: translateX(-8%);
     }
   }
+
+  .dia {
+    transition: opacity 0.6s var(--ease-out-soft);
+  }
+  /* La información ENTRA, no aparece: cada línea sube en cascada al
+     activarse la diapositiva. */
+  .dia .linea {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  .dia.activa .linea {
+    opacity: 1;
+    transform: none;
+    transition:
+      opacity 0.5s var(--ease-out-soft),
+      transform 0.5s var(--ease-out-soft);
+  }
+  .dia.activa .linea:nth-child(2) { transition-delay: 90ms; }
+  .dia.activa .linea:nth-child(3) { transition-delay: 180ms; }
+  .dia.activa .btn { transition-delay: 260ms; }
+
   @media (prefers-reduced-motion: reduce) {
-    .skyline {
-      animation: none;
-    }
+    .skyline { animation: none; }
+    .dia { transition: none; }
+    .dia .linea { opacity: 1; transform: none; transition: none !important; }
   }
 </style>
+
+<script is:inline>
+  // Rotación del banner: cada 6.5 s entra el siguiente mensaje. Se detiene
+  // al posar el cursor o tocar un punto, y con "reducir movimiento" el
+  // primer mensaje se queda quieto — la información no desfila para quien
+  // pidió que nada desfile.
+  (() => {
+    const caja = document.getElementById('promo');
+    if (!caja) return;
+    const dias = [...caja.querySelectorAll('.dia')];
+    const puntos = [...caja.querySelectorAll('.punto')];
+    if (dias.length < 2) return;
+
+    let actual = 0;
+    let reloj = null;
+
+    const mostrar = (i) => {
+      actual = i;
+      dias.forEach((d, j) => {
+        const activa = j === i;
+        d.classList.toggle('activa', activa);
+        d.style.opacity = activa ? '1' : '0';
+        d.style.pointerEvents = activa ? 'auto' : 'none';
+        d.setAttribute('aria-hidden', activa ? 'false' : 'true');
+        d.tabIndex = activa ? 0 : -1;
+      });
+      puntos.forEach((p, j) => {
+        p.setAttribute('aria-selected', j === i ? 'true' : 'false');
+        p.style.width = j === i ? '1.4rem' : '0.375rem';
+        p.style.opacity = j === i ? '1' : '0.45';
+      });
+    };
+
+    const parar = () => {
+      if (reloj) clearInterval(reloj);
+      reloj = null;
+    };
+
+    puntos.forEach((p, i) =>
+      p.addEventListener('click', () => {
+        parar();
+        mostrar(i);
+      })
+    );
+    caja.addEventListener('mouseenter', parar);
+
+    if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      reloj = setInterval(() => mostrar((actual + 1) % dias.length), 6500);
+    }
+  })();
+</script>
