@@ -1,0 +1,171 @@
+---
+/**
+ * Banda de equipo y trayectoria.
+ *
+ * Es la respuesta a los banners de los portales grandes, pero con la única
+ * carta que ellos no pueden jugar: un portal tiene diez mil anuncios y ningún
+ * rostro; Villanisa tiene 27 años y gente con nombre. Por eso aquí van los
+ * retratos reales de los asesores —los mismos de /agentes/— y no una foto de
+ * archivo.
+ *
+ * La animación es doble y barata: los contadores suben al entrar en pantalla
+ * (un script de veinte líneas, sin librerías) y los retratos aparecen en
+ * cascada con CSS puro. Todo se apaga si el visitante tiene activado
+ * "reducir movimiento".
+ */
+import { getAgents, getAllProperties, aeImage } from '../lib/alterestate';
+
+const todos = await getAgents();
+const agentes = todos.filter((a) => a.avatar).slice(0, 7);
+const total = (await getAllProperties()).length;
+
+// Se calcula, no se escribe: el año que viene el banner dirá 28 sin que
+// nadie tenga que acordarse de cambiarlo. Igual el número de asesores: es el
+// del CRM, no uno puesto a mano que se quede viejo.
+const anos = new Date().getFullYear() - 1999;
+
+const cifras = [
+  { n: anos, sufijo: '', etiqueta: 'años en el mercado' },
+  { n: total, sufijo: '', etiqueta: 'propiedades disponibles' },
+  { n: todos.length, sufijo: '', etiqueta: 'asesores con nombre y apellido' },
+];
+---
+
+<section class="mt-28 bg-[var(--color-brand-700)] text-white" aria-labelledby="equipo-titulo">
+  <div class="container-x grid items-center gap-12 py-16 md:grid-cols-[1.2fr_1fr] md:py-20">
+    <div>
+      <p class="eyebrow !text-[var(--color-brand-200)]">Desde 1999</p>
+      <h2 id="equipo-titulo" class="mt-3 text-[clamp(1.9rem,4vw,3rem)] leading-[1.05]">
+        {anos} años vendiendo bien,<br />
+        <span class="text-[var(--color-brand-200)]">con caras conocidas.</span>
+      </h2>
+      <p class="mt-5 max-w-lg text-[1rem] leading-relaxed text-white/75">
+        Detrás de cada propiedad de este sitio hay un asesor que la conoce y
+        responde por ella. Sin centros de llamadas, sin listados fantasma.
+      </p>
+
+      <dl class="mt-9 flex flex-wrap gap-x-12 gap-y-6">
+        {
+          cifras
+            .filter((c) => c.n > 0)
+            .map((c) => (
+              <div>
+                <dd
+                  class="cifra text-[2.2rem] font-semibold leading-none tracking-tight"
+                  data-meta={c.n}
+                  data-sufijo={c.sufijo}
+                >
+                  {c.n}{c.sufijo}
+                </dd>
+                <dt class="mt-1.5 text-[0.82rem] text-white/60">{c.etiqueta}</dt>
+              </div>
+            ))
+        }
+      </dl>
+
+      <div class="mt-10 flex flex-wrap gap-3">
+        <a href="/agentes/" class="btn !bg-white !text-[var(--color-brand-700)] hover:!bg-[var(--color-bone-100)]">
+          Conoce al equipo
+        </a>
+        <a href="/nosotros/" class="btn !border !border-white/30 !text-white hover:!border-white">
+          Nuestra historia
+        </a>
+      </div>
+    </div>
+
+    {
+      agentes.length > 0 && (
+        <div class="justify-self-center md:justify-self-end">
+          <div class="equipo-fotos flex flex-wrap justify-center gap-3 md:max-w-[340px]">
+            {agentes.map((a, i) => (
+              <img
+                src={aeImage(a.avatar!, 240, { height: 240, fit: 'cover' })}
+                alt={a.full_name ?? 'Asesor de Villanisa'}
+                width="120"
+                height="120"
+                loading="lazy"
+                decoding="async"
+                class="foto-asesor size-[88px] rounded-full border-2 border-white/20 object-cover md:size-[104px]"
+                style={`--orden: ${i}`}
+              />
+            ))}
+          </div>
+          <p class="mt-4 text-center text-[0.78rem] text-white/50">El equipo que te contesta</p>
+        </div>
+      )
+    }
+  </div>
+</section>
+
+<style>
+  /* Cascada de retratos: cada uno entra con un pequeño retraso según su
+     posición. Solo cuando la sección se hace visible (.esta-visible). */
+  .foto-asesor {
+    opacity: 0;
+    transform: translateY(14px) scale(0.9);
+  }
+  :global(.esta-visible) .foto-asesor {
+    opacity: 1;
+    transform: none;
+    transition:
+      opacity 0.55s var(--ease-out-soft),
+      transform 0.55s var(--ease-out-soft);
+    transition-delay: calc(var(--orden) * 90ms);
+  }
+  /* Respiración sutil y continua, alternada para que no parezcan pegados. */
+  :global(.esta-visible) .foto-asesor:nth-child(odd) {
+    animation: flotar 5s ease-in-out calc(var(--orden) * 90ms + 0.6s) infinite;
+  }
+  @keyframes flotar {
+    50% {
+      transform: translateY(-6px);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .foto-asesor {
+      opacity: 1;
+      transform: none;
+      animation: none !important;
+      transition: none;
+    }
+  }
+</style>
+
+<script is:inline>
+  // Contadores que suben al entrar en pantalla. Sin librerías: un
+  // IntersectionObserver y requestAnimationFrame.
+  (() => {
+    const seccion = document.querySelector('[aria-labelledby="equipo-titulo"]');
+    if (!seccion) return;
+    const reducir = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    const contar = (el) => {
+      const meta = Number(el.dataset.meta);
+      const sufijo = el.dataset.sufijo || '';
+      if (reducir || !meta) return; // el HTML ya trae el número final
+      const inicio = performance.now();
+      const dur = 1100;
+      const paso = (t) => {
+        const p = Math.min((t - inicio) / dur, 1);
+        // Frena al final, como un cuentakilómetros de verdad.
+        const suave = 1 - Math.pow(1 - p, 3);
+        el.textContent = Math.round(meta * suave) + sufijo;
+        if (p < 1) requestAnimationFrame(paso);
+      };
+      requestAnimationFrame(paso);
+    };
+
+    const io = new IntersectionObserver(
+      (entradas) => {
+        for (const e of entradas) {
+          if (!e.isIntersecting) continue;
+          e.target.classList.add('esta-visible');
+          e.target.querySelectorAll('.cifra').forEach(contar);
+          io.disconnect();
+        }
+      },
+      { threshold: 0.35 }
+    );
+    io.observe(seccion);
+  })();
+</script>

@@ -2,6 +2,7 @@
 import Base from '../layouts/Base.astro';
 import PropertyCard from '../components/PropertyCard.astro';
 import LeadForm from '../components/LeadForm.astro';
+import BannerEquipo from '../components/BannerEquipo.astro';
 import { getAllProperties, getZonasConDatos, type ZonaPublicada, getTasaDOP, usdOf, precioPlausible } from '../lib/alterestate';
 
 const props = await getAllProperties();
@@ -82,6 +83,9 @@ const pilares = [
       </section>
     )
   }
+
+  <!-- Equipo y trayectoria: la carta que los portales no pueden jugar -->
+  <BannerEquipo />
 
   <!-- Sectores: la malla de enlaces que sostiene el SEO local -->
   {
