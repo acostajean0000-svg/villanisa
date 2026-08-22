@@ -4,6 +4,7 @@ import PropertyCard from '../components/PropertyCard.astro';
 import LeadForm from '../components/LeadForm.astro';
 import BannerEquipo from '../components/BannerEquipo.astro';
 import BuscadorPortada from '../components/BuscadorPortada.astro';
+import BannerPromo from '../components/BannerPromo.astro';
 import { getAllProperties, getZonasConDatos, type ZonaPublicada, getTasaDOP, usdOf, precioPlausible } from '../lib/alterestate';
 
 const props = await getAllProperties();
@@ -43,6 +44,9 @@ const pilares = [
 ---
 
 <Base title="Villanisa — Inmobiliaria en República Dominicana" description={descripcion}>
+  <!-- Banda promocional: el espacio del anunciante, trabajando para la casa -->
+  <BannerPromo />
+
   <!-- Hero -->
   <section class="container-x pt-16 pb-6 md:pt-24">
     <div class="max-w-4xl">
