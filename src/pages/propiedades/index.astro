@@ -12,6 +12,7 @@ import {
   precioMostrable,
   isForSale,
   getZonasConDatos,
+  BANDAS_PRECIO_USD,
   type ZonaPublicada,
 } from '../../lib/alterestate';
 
@@ -33,6 +34,16 @@ const ordenadas = [...props].sort((a, b) => {
 
 const tipos = [...new Set(props.map((p) => p.category?.name).filter(Boolean))].sort() as string[];
 const ciudades = [...new Set(props.map((p) => p.city).filter(Boolean))].sort() as string[];
+
+// Sectores con su ciudad: el select de sector se acorta al elegir ciudad.
+const sectores = [...new Map(
+  props
+    .filter((p) => p.sector)
+    .map((p) => [slugify(p.sector!), { nombre: p.sector!, ciudad: slugify(p.city ?? '') }])
+).entries()].sort((a, b) => a[1].nombre.localeCompare(b[1].nombre, 'es'));
+
+const enVentaN = props.filter((p) => isForSale(p)).length;
+const enAlquilerN = props.length - enVentaN;
 
 // Hub de enlaces internos: desde aquí Google alcanza cada página de zona.
 /**
@@ -77,9 +88,16 @@ const schema = {
     </p>
   </section>
 
-  <!-- Filtros: sin framework, puro HTML + un script de 40 líneas -->
-  <section class="container-x sticky top-[68px] z-30 mt-10 border-y border-[var(--border)] bg-[var(--surface)]/95 py-4 backdrop-blur-xl">
+  <!-- Filtros: sin framework, puro HTML + un script corto. La portada envía
+       aquí sus parámetros, así que este es el ÚNICO motor de filtrado. -->
+  <section class="container-x sticky top-[76px] z-30 mt-10 border-y border-[var(--border)] bg-[var(--surface)]/95 py-4 backdrop-blur-xl">
     <div class="flex flex-wrap items-center gap-2.5">
+      <select id="f-op" aria-label="Operación" class="rounded-full border border-[var(--border-control)] bg-[var(--surface-raised)] px-4 py-2.5 text-[0.9rem]">
+        <option value="">Comprar o alquilar</option>
+        <option value="venta">Comprar ({enVentaN})</option>
+        {enAlquilerN > 0 && <option value="alquiler">Alquilar ({enAlquilerN})</option>}
+      </select>
+
       <select id="f-tipo" aria-label="Tipo de propiedad" class="rounded-full border border-[var(--border-control)] bg-[var(--surface-raised)] px-4 py-2.5 text-[0.9rem]">
         <option value="">Todos los tipos</option>
         {tipos.map((t) => <option value={slugify(t)}>{t}</option>)}
@@ -90,6 +108,11 @@ const schema = {
         {ciudades.map((c) => <option value={slugify(c)}>{c}</option>)}
       </select>
 
+      <select id="f-sector" aria-label="Sector" class="rounded-full border border-[var(--border-control)] bg-[var(--surface-raised)] px-4 py-2.5 text-[0.9rem]">
+        <option value="">Todos los sectores</option>
+        {sectores.map(([slug, s]) => <option value={slug} data-ciudad={s.ciudad}>{s.nombre}</option>)}
+      </select>
+
       <select id="f-hab" aria-label="Habitaciones" class="rounded-full border border-[var(--border-control)] bg-[var(--surface-raised)] px-4 py-2.5 text-[0.9rem]">
         <option value="">Habitaciones</option>
         <option value="1">1+</option>
@@ -98,12 +121,21 @@ const schema = {
         <option value="4">4+</option>
       </select>
 
-      <select id="f-precio" aria-label="Presupuesto" class="rounded-full border border-[var(--border-control)] bg-[var(--surface-raised)] px-4 py-2.5 text-[0.9rem]">
-        <option value="">Presupuesto</option>
-        <option value="0-100000">Hasta US$100k</option>
-        <option value="100000-200000">US$100k – 200k</option>
-        <option value="200000-400000">US$200k – 400k</option>
-        <option value="400000-99999999">US$400k+</option>
+      <select id="f-banos" aria-label="Baños" class="rounded-full border border-[var(--border-control)] bg-[var(--surface-raised)] px-4 py-2.5 text-[0.9rem]">
+        <option value="">Baños</option>
+        <option value="1">1+</option>
+        <option value="2">2+</option>
+        <option value="3">3+</option>
+      </select>
+
+      <select id="f-pmin" aria-label="Precio desde" class="rounded-full border border-[var(--border-control)] bg-[var(--surface-raised)] px-4 py-2.5 text-[0.9rem]">
+        <option value="">Desde</option>
+        {BANDAS_PRECIO_USD.map((b) => <option value={b.v}>{b.l}</option>)}
+      </select>
+
+      <select id="f-pmax" aria-label="Precio hasta" class="rounded-full border border-[var(--border-control)] bg-[var(--surface-raised)] px-4 py-2.5 text-[0.9rem]">
+        <option value="">Hasta</option>
+        {BANDAS_PRECIO_USD.map((b) => <option value={b.v}>{b.l}</option>)}
       </select>
 
       <button id="f-reset" type="button" class="rounded-full px-3 py-2.5 text-[0.88rem] text-[var(--text-mute)] underline-offset-4 hover:underline">
@@ -124,7 +156,9 @@ const schema = {
             class="prop"
             data-tipo={slugify(p.category?.name ?? '')}
             data-ciudad={slugify(p.city ?? '')}
+            data-sector={slugify(p.sector ?? '')}
             data-hab={p.room ?? 0}
+            data-banos={p.bathroom ?? 0}
             data-precio={(() => {
               // El filtro usa el MISMO precio que muestra la tarjeta. Con
               // usdOf crudo, la ficha de US$119 salía en "Hasta US$100k"
@@ -195,29 +229,70 @@ const schema = {
 
 <script>
   const $ = (s: string) => document.querySelector(s) as HTMLElement;
+  const op = $('#f-op') as HTMLSelectElement;
   const tipo = $('#f-tipo') as HTMLSelectElement;
   const ciudad = $('#f-ciudad') as HTMLSelectElement;
+  const sector = $('#f-sector') as HTMLSelectElement;
   const hab = $('#f-hab') as HTMLSelectElement;
-  const precio = $('#f-precio') as HTMLSelectElement;
+  const banos = $('#f-banos') as HTMLSelectElement;
+  const pmin = $('#f-pmin') as HTMLSelectElement;
+  const pmax = $('#f-pmax') as HTMLSelectElement;
   const count = $('#f-count');
   const vacio = $('#vacio');
   const items = [...document.querySelectorAll<HTMLElement>('.prop')];
+  const controles = [op, tipo, ciudad, sector, hab, banos, pmin, pmax];
+
+  /**
+   * El sector obedece a la ciudad: al elegir una, el select de sector se
+   * queda solo con los sectores de esa ciudad. Y si el que estaba elegido ya
+   * no pertenece, se limpia — mantenerlo daría cero resultados sin explicar
+   * por qué.
+   */
+  function acotarSectores() {
+    const c = ciudad.value;
+    let elegidoVive = false;
+    for (const o of [...sector.options].slice(1)) {
+      const fuera = Boolean(c) && o.dataset.ciudad !== c;
+      o.hidden = fuera;
+      if (o.value === sector.value && !fuera) elegidoVive = true;
+    }
+    if (sector.value && !elegidoVive) sector.value = '';
+  }
+
+  /**
+   * El presupuesto solo aplica a compra. Los alquileres se publican por mes,
+   * así que cruzarlos con bandas de precio de venta daría siempre cero:
+   * mejor apagar el control que dejar una trampa.
+   */
+  function acotarPrecio() {
+    const alquiler = op.value === 'alquiler';
+    for (const s of [pmin, pmax]) {
+      s.disabled = alquiler;
+      if (alquiler) s.value = '';
+    }
+  }
 
   function aplicar() {
-    const [min, max] = precio.value ? precio.value.split('-').map(Number) : [0, Infinity];
+    acotarSectores();
+    acotarPrecio();
+    const min = pmin.value ? Number(pmin.value) : 0;
+    const max = pmax.value ? Number(pmax.value) : Infinity;
     let visibles = 0;
 
     for (const el of items) {
       const d = el.dataset;
       // Sin precio (cadena vacía) queda fuera de cualquier tramo: antes valía
-      // cero y se colaba en "Hasta US$100k" — el panel incluso afirmaba lo
-      // contrario, que esas fichas no salían en filtros.
+      // cero y se colaba en "Hasta US$100k".
       const p = d.precio === '' || d.precio == null ? null : Number(d.precio);
+      const filtraPrecio = Boolean(pmin.value || pmax.value);
       const ok =
+        (!op.value || d.venta === (op.value === 'venta' ? '1' : '0')) &&
         (!tipo.value || d.tipo === tipo.value) &&
         (!ciudad.value || d.ciudad === ciudad.value) &&
+        (!sector.value || d.sector === sector.value) &&
         (!hab.value || Number(d.hab) >= Number(hab.value)) &&
-        (!precio.value || (p !== null && p >= min && p <= max));
+        (!banos.value || Number(d.banos) >= Number(banos.value)) &&
+        (!filtraPrecio || (p !== null && p >= min && p <= max));
 
       el.hidden = !ok;
       if (ok) visibles++;
@@ -228,28 +303,44 @@ const schema = {
 
     // Refleja los filtros en la URL para que el usuario pueda compartirla
     const params = new URLSearchParams();
+    if (op.value) params.set('op', op.value);
     if (tipo.value) params.set('tipo', tipo.value);
     if (ciudad.value) params.set('ciudad', ciudad.value);
+    if (sector.value) params.set('sector', sector.value);
     if (hab.value) params.set('hab', hab.value);
-    if (precio.value) params.set('precio', precio.value);
+    if (banos.value) params.set('banos', banos.value);
+    if (pmin.value) params.set('pmin', pmin.value);
+    if (pmax.value) params.set('pmax', pmax.value);
     const qs = params.toString();
     history.replaceState(null, '', qs ? `?${qs}` : location.pathname);
   }
 
   function limpiar() {
-    tipo.value = ciudad.value = hab.value = precio.value = '';
+    controles.forEach((el) => (el.value = ''));
     aplicar();
   }
 
-  [tipo, ciudad, hab, precio].forEach((el) => el.addEventListener('change', aplicar));
+  controles.forEach((el) => el.addEventListener('change', aplicar));
   $('#f-reset').addEventListener('click', limpiar);
   document.getElementById('vacio-reset')?.addEventListener('click', limpiar);
 
-  // Estado inicial desde la URL (permite enlazar /propiedades/?tipo=villas)
+  // Estado inicial desde la URL (la portada enlaza con estos parámetros)
   const p = new URLSearchParams(location.search);
+  if (p.get('op')) op.value = p.get('op')!;
   if (p.get('tipo')) tipo.value = p.get('tipo')!;
   if (p.get('ciudad')) ciudad.value = p.get('ciudad')!;
+  if (p.get('sector')) sector.value = p.get('sector')!;
   if (p.get('hab')) hab.value = p.get('hab')!;
-  if (p.get('precio')) precio.value = p.get('precio')!;
+  if (p.get('banos')) banos.value = p.get('banos')!;
+  if (p.get('pmin')) pmin.value = p.get('pmin')!;
+  if (p.get('pmax')) pmax.value = p.get('pmax')!;
+  // Compatibilidad con los enlaces viejos (?precio=100000-200000): se
+  // traducen a desde/hasta para que sigan funcionando compartidos.
+  if (p.get('precio')) {
+    const [a, b] = p.get('precio')!.split('-');
+    if (a && Number(a) > 0) pmin.value = a;
+    if (b && Number(b) < 99999999) pmax.value = b;
+  }
   if ([...p.keys()].length) aplicar();
+  else acotarSectores();
 </script>

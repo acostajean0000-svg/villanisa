@@ -1,17 +1,23 @@
 ---
 /**
- * Buscador de portada + vitrina de propiedades.
+ * Buscador de portada + columna de categorías + vitrina de propiedades.
  *
- * El formato clásico de portal (SuperCasas): a la izquierda el filtro, a la
- * derecha una propiedad grande rotando. Con una decisión de arquitectura que
- * lo hace casi gratis: el formulario NO filtra nada aquí — envía a
- * /propiedades/ con los mismos parámetros de URL que esa página ya lee
- * (?tipo=&ciudad=&hab=&precio=). Un solo motor de filtrado en todo el sitio;
- * si mañana cambia un criterio, se cambia en un lugar.
+ * El formato de SuperCasas, con tres mejoras deliberadas:
  *
- * Por eso los <option> se generan con el MISMO slugify y las MISMAS bandas de
- * precio que usa /propiedades/: un valor distinto aquí sería un filtro que
- * llega vacío allá.
+ *   1. Un solo motor. El formulario NO filtra nada aquí: envía a /propiedades/
+ *      con los parámetros que esa página ya lee (op, tipo, ciudad, sector,
+ *      hab, banos, pmin, pmax). Los <option> se generan con el MISMO slugify
+ *      y las MISMAS bandas de precio; un valor distinto aquí sería un filtro
+ *      que llega vacío allá.
+ *
+ *   2. Nada muerto. El portal lista "Naves, Oficinas, Edificios" aunque no
+ *      tenga; aquí cada categoría sale del inventario con su conteo real, y
+ *      la que tiene cero no se pinta. Igual el sector: al elegir ciudad, el
+ *      select se queda solo con los sectores de esa ciudad.
+ *
+ *   3. Honestidad con el alquiler. El presupuesto son bandas de venta; si el
+ *      visitante elige "Alquilar", el control se apaga en vez de dejarle
+ *      armar una búsqueda que siempre da cero.
  */
 import {
   getAllProperties,
@@ -23,6 +29,7 @@ import {
   aeImage,
   slugify,
   isForSale,
+  BANDAS_PRECIO_USD,
 } from '../lib/alterestate';
 
 const props = await getAllProperties();
@@ -30,16 +37,38 @@ const tasa = await getTasaDOP();
 
 const tipos = [...new Set(props.map((p) => p.category?.name).filter(Boolean))].sort() as string[];
 const ciudades = [...new Set(props.map((p) => p.city).filter(Boolean))].sort() as string[];
+const sectores = [...new Map(
+  props
+    .filter((p) => p.sector)
+    .map((p) => [slugify(p.sector!), { nombre: p.sector!, ciudad: slugify(p.city ?? '') }])
+).entries()].sort((a, b) => a[1].nombre.localeCompare(b[1].nombre, 'es'));
 
-// Accesos de un toque, como la columna de categorías del portal — pero solo
-// a lo que existe: cada chip lleva su conteo real y no se pinta si hay cero.
+const enVentaN = props.filter((p) => isForSale(p)).length;
+const enAlquilerN = props.length - enVentaN;
+
+// Columna de categorías: solo lo que existe, con su conteo.
 const categorias = tipos
-  .map((t) => ({ t, n: props.filter((p) => p.category?.name === t).length }))
+  .map((t) => ({ t, slug: slugify(t), n: props.filter((p) => p.category?.name === t).length }))
   .filter((c) => c.n > 0)
-  .sort((a, b) => b.n - a.n)
-  .slice(0, 6);
+  .sort((a, b) => b.n - a.n);
 
-// La vitrina: 5 con foto y precio publicable, las más caras primero.
+// Icono por categoría (trazos simples, heredan el color del texto).
+const ICONOS: Record<string, string> = {
+  apartamentos:
+    'M4 21V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v16M15 9h4a1 1 0 0 1 1 1v11M4 21h17M8 8h2m-2 4h2m-2 4h2m8-3h.01M18 17h.01',
+  casas: 'M3 11 12 4l9 7M5 9.5V20h14V9.5M10 20v-6h4v6',
+  villas: 'M2 20h20M4 20v-8l5-3 5 3v8M14 12l4-2 4 2v8M9 15v2m8-2v2',
+  penthouse: 'M4 21V9l8-5 8 5v12M4 13h16M9 21v-4h6v4M9 9h.01M15 9h.01',
+  terrenos: 'M3 20h18M5 20l3-9h8l3 9M10 11V8m4 3V8M8 8h8',
+  solares: 'M3 20h18M5 20l3-9h8l3 9M10 11V8m4 3V8M8 8h8',
+  fincas: 'M3 20h18M6 20v-6l4-3 4 3v6M17 20V9m0 0c1.5 0 3-1.3 3-3-2 0-3 .5-3 3Zm0 0c-1.5 0-3-1.3-3-3 2 0 3 .5 3 3Z',
+  casa: 'M3 11 12 4l9 7M5 9.5V20h14V9.5M10 20v-6h4v6',
+};
+const iconoDe = (slug: string) =>
+  ICONOS[slug] ??
+  'M4 21V7a1 1 0 0 1 1-1h6V3l8 3v15M4 21h17M8 10h2m-2 4h2m5-4h2m-2 4h2';
+
+// La vitrina: 5 en venta con foto y precio publicable, las más caras primero.
 const vitrina = [...props]
   .filter((p) => p.featured_image && isForSale(p))
   .filter((p) => precioPlausible(p, tasa))
@@ -53,73 +82,126 @@ const vitrina = [...props]
     zona: p.sector || p.city || '',
     precio: precioPublico(p, tasa),
   }));
+
+const claseSelect =
+  'w-full rounded-full border border-[var(--border-control)] bg-[var(--surface-raised)] px-4 py-3 text-[0.92rem]';
 ---
 
 <section class="container-x mt-16" aria-label="Buscar propiedades">
-  <div class="card grid gap-0 overflow-hidden p-0 lg:grid-cols-[380px_1fr]">
+  <div class="card grid gap-0 overflow-hidden p-0 lg:grid-cols-[340px_225px_1fr]">
     <!-- Filtro -->
     <form
+      id="buscador-portada"
       action="/propiedades/"
       method="get"
-      class="flex flex-col gap-3.5 p-7 md:p-9"
+      class="flex flex-col gap-3 p-7 md:p-8"
       aria-label="Filtro de búsqueda"
     >
-      <h2 class="text-[1.6rem] leading-tight">
-        Busca tu <span class="text-[var(--color-brand-500)]">propiedad</span>
+      <h2 class="text-[1.55rem] leading-tight">
+        ¡Busca tu <span class="text-[var(--color-brand-500)]">propiedad</span>!
       </h2>
 
-      <select name="tipo" aria-label="Tipo de propiedad" class="rounded-full border border-[var(--border-control)] bg-[var(--surface-raised)] px-4 py-3 text-[0.92rem]">
-        <option value="">Tipo de propiedad</option>
-        {tipos.map((t) => <option value={slugify(t)}>{t}</option>)}
+      <select name="op" id="b-op" aria-label="Comprar o alquilar" class={claseSelect}>
+        <option value="">Comprar o alquilar</option>
+        <option value="venta">Comprar ({enVentaN})</option>
+        {enAlquilerN > 0 && <option value="alquiler">Alquilar ({enAlquilerN})</option>}
       </select>
 
-      <select name="ciudad" aria-label="Ciudad" class="rounded-full border border-[var(--border-control)] bg-[var(--surface-raised)] px-4 py-3 text-[0.92rem]">
+      <select name="ciudad" id="b-ciudad" aria-label="Ciudad" class={claseSelect}>
         <option value="">Todas las ciudades</option>
         {ciudades.map((c) => <option value={slugify(c)}>{c}</option>)}
       </select>
 
+      <select name="sector" id="b-sector" aria-label="Sector" class={claseSelect}>
+        <option value="">Todos los sectores</option>
+        {sectores.map(([slug, s]) => <option value={slug} data-ciudad={s.ciudad}>{s.nombre}</option>)}
+      </select>
+
+      <select name="tipo" aria-label="Tipo de propiedad" class={claseSelect}>
+        <option value="">Tipo de propiedad</option>
+        {tipos.map((t) => <option value={slugify(t)}>{t}</option>)}
+      </select>
+
       <div class="grid grid-cols-2 gap-3">
-        <select name="hab" aria-label="Habitaciones" class="rounded-full border border-[var(--border-control)] bg-[var(--surface-raised)] px-4 py-3 text-[0.92rem]">
+        <select name="pmin" id="b-pmin" aria-label="Precio desde" class={claseSelect}>
+          <option value="">Precio desde</option>
+          {BANDAS_PRECIO_USD.map((b) => <option value={b.v}>{b.l}</option>)}
+        </select>
+        <select name="pmax" id="b-pmax" aria-label="Precio hasta" class={claseSelect}>
+          <option value="">Hasta</option>
+          {BANDAS_PRECIO_USD.map((b) => <option value={b.v}>{b.l}</option>)}
+        </select>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <select name="hab" aria-label="Habitaciones" class={claseSelect}>
           <option value="">Habitaciones</option>
           <option value="1">1+</option>
           <option value="2">2+</option>
           <option value="3">3+</option>
           <option value="4">4+</option>
         </select>
-        <select name="precio" aria-label="Presupuesto" class="rounded-full border border-[var(--border-control)] bg-[var(--surface-raised)] px-4 py-3 text-[0.92rem]">
-          <option value="">Presupuesto</option>
-          <option value="0-100000">Hasta US$100k</option>
-          <option value="100000-200000">US$100k – 200k</option>
-          <option value="200000-400000">US$200k – 400k</option>
-          <option value="400000-99999999">US$400k+</option>
+        <select name="banos" aria-label="Baños" class={claseSelect}>
+          <option value="">Baños</option>
+          <option value="1">1+</option>
+          <option value="2">2+</option>
+          <option value="3">3+</option>
         </select>
       </div>
 
-      <button type="submit" class="btn btn-primary mt-1 w-full">Buscar</button>
-
-      {
-        categorias.length > 0 && (
-          <div class="mt-3 border-t border-[var(--border)] pt-4">
-            <p class="text-[0.75rem] uppercase tracking-wide text-[var(--text-mute)]">Directo a</p>
-            <div class="mt-2.5 flex flex-wrap gap-2">
-              {categorias.map((c) => (
-                <a
-                  href={`/propiedades/?tipo=${slugify(c.t)}`}
-                  class="rounded-full border border-[var(--border)] px-3.5 py-1.5 text-[0.85rem] transition-colors hover:border-[var(--color-brand-500)] hover:text-[var(--color-brand-500)]"
-                >
-                  {c.t} <span class="text-[var(--text-mute)]">{c.n}</span>
-                </a>
-              ))}
-            </div>
-          </div>
-        )
-      }
+      <div class="mt-1 flex items-center gap-4">
+        <button type="submit" class="btn btn-primary flex-1">Buscar</button>
+        <a
+          href="/propiedades/"
+          class="whitespace-nowrap text-[0.88rem] text-[var(--text-soft)] underline-offset-4 hover:underline"
+        >
+          Ver todas →
+        </a>
+      </div>
     </form>
+
+    <!-- Categorías: solo las que existen, con su conteo real -->
+    <nav
+      class="border-t border-[var(--border)] p-7 md:p-8 lg:border-t-0 lg:border-l"
+      aria-label="Propiedades por categoría"
+    >
+      <ul class="flex flex-col gap-1">
+        {
+          categorias.map((c) => (
+            <li>
+              <a
+                href={`/propiedades/?tipo=${c.slug}`}
+                class="group flex items-center gap-3.5 rounded-xl px-2.5 py-2.5 transition-colors hover:bg-[var(--color-brand-50)]"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="26"
+                  height="26"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  class="shrink-0 text-[var(--text-mute)] transition-colors group-hover:text-[var(--color-brand-500)]"
+                  aria-hidden="true"
+                >
+                  <path d={iconoDe(c.slug)} />
+                </svg>
+                <span class="text-[0.98rem] transition-colors group-hover:text-[var(--color-brand-600)]">
+                  {c.t}
+                </span>
+                <span class="ml-auto text-[0.82rem] text-[var(--text-mute)]">{c.n}</span>
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
 
     <!-- Vitrina -->
     {
       vitrina.length > 0 && (
-        <div id="vitrina" class="relative bg-[var(--color-bone-100)]">
+        <div id="vitrina" class="relative border-t border-[var(--border)] bg-[var(--color-bone-100)] lg:border-t-0 lg:border-l">
           <div class="relative aspect-[16/10] lg:h-full lg:min-h-[430px]">
             {vitrina.map((v, i) => (
               <a
@@ -169,18 +251,56 @@ const vitrina = [...props]
 </section>
 
 <script is:inline>
-  // Rotación de la vitrina. Sin librería: mostrar una lámina, apagar las
-  // demás. Avanza sola cada 5 s, se detiene cuando el visitante toca una
-  // miniatura o posa el cursor, y no arranca si pidió reducir movimiento.
-  // Un select vacío no viaja en la URL: sin esto la búsqueda "sin filtros"
-  // llegaría como /propiedades/?tipo=&ciudad=&hab=&precio= — funciona igual,
-  // pero es una URL fea que la gente comparte tal cual.
-  document.querySelector('form[action="/propiedades/"]')?.addEventListener('submit', (e) => {
-    e.target.querySelectorAll('select').forEach((s) => {
-      if (!s.value) s.disabled = true;
-    });
-  });
+  (() => {
+    const form = document.getElementById('buscador-portada');
+    if (!form) return;
+    const op = form.querySelector('#b-op');
+    const ciudad = form.querySelector('#b-ciudad');
+    const sector = form.querySelector('#b-sector');
+    const pmin = form.querySelector('#b-pmin');
+    const pmax = form.querySelector('#b-pmax');
 
+    // El sector obedece a la ciudad; si el elegido deja de pertenecer, se
+    // limpia en vez de mandar una búsqueda imposible.
+    ciudad.addEventListener('change', () => {
+      let vive = false;
+      for (const o of [...sector.options].slice(1)) {
+        const fuera = Boolean(ciudad.value) && o.dataset.ciudad !== ciudad.value;
+        o.hidden = fuera;
+        if (o.value === sector.value && !fuera) vive = true;
+      }
+      if (sector.value && !vive) sector.value = '';
+    });
+
+    // El presupuesto son bandas de venta: en alquiler se apaga.
+    op.addEventListener('change', () => {
+      const alquiler = op.value === 'alquiler';
+      for (const s of [pmin, pmax]) {
+        s.disabled = alquiler;
+        if (alquiler) s.value = '';
+      }
+    });
+
+    // "Hasta" nunca por debajo de "desde": corregirlo aquí evita mandar una
+    // búsqueda vacía y que /propiedades/ tenga que explicar por qué.
+    pmax.addEventListener('change', () => {
+      if (pmin.value && pmax.value && Number(pmax.value) < Number(pmin.value)) pmin.value = '';
+    });
+    pmin.addEventListener('change', () => {
+      if (pmin.value && pmax.value && Number(pmax.value) < Number(pmin.value)) pmax.value = '';
+    });
+
+    // Un select vacío no viaja en la URL.
+    form.addEventListener('submit', () => {
+      form.querySelectorAll('select').forEach((s) => {
+        if (!s.value) s.disabled = true;
+      });
+    });
+  })();
+
+  // Rotación de la vitrina. Avanza sola cada 5 s, se detiene cuando el
+  // visitante toca una miniatura o posa el cursor, y no arranca si pidió
+  // reducir movimiento.
   (() => {
     const caja = document.getElementById('vitrina');
     if (!caja) return;
@@ -214,7 +334,7 @@ const vitrina = [...props]
 
     minis.forEach((m, i) =>
       m.addEventListener('click', () => {
-        parar(); // eligió una: la rotación deja de decidir por él
+        parar();
         mostrar(i);
       })
     );

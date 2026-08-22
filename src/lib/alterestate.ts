@@ -662,3 +662,22 @@ export async function getTitulos(): Promise<Map<string, string>> {
   titulosCache = out;
   return out;
 }
+
+/**
+ * Bandas de precio del buscador, en USD y en un solo lugar.
+ *
+ * Las leen la portada y /propiedades/. Si vivieran en cada página, el día que
+ * alguien ajuste una la otra seguiría mandando valores que ya nadie entiende.
+ */
+export const BANDAS_PRECIO_USD: Array<{ v: number; l: string }> = [
+  { v: 50_000, l: 'US$50k' },
+  { v: 100_000, l: 'US$100k' },
+  { v: 150_000, l: 'US$150k' },
+  { v: 200_000, l: 'US$200k' },
+  { v: 300_000, l: 'US$300k' },
+  { v: 400_000, l: 'US$400k' },
+  { v: 600_000, l: 'US$600k' },
+  { v: 800_000, l: 'US$800k' },
+  { v: 1_000_000, l: 'US$1M' },
+  { v: 2_000_000, l: 'US$2M' },
+];
