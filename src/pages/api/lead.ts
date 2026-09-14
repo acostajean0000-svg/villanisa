@@ -65,21 +65,26 @@ export const POST: APIRoute = async ({ request }) => {
   ]
     .filter(Boolean)
     .join('\n');
+  // Nota: el asesor de la ficha se añade más abajo, después de validarlo.
 
   /**
-   * A quién se le asigna el lead.
+   * A quién se le asigna el lead: SIEMPRE al round robin.
    *
    * Regla de AlterEstate, textual: "If neither `related` nor `round_robin` is
    * sent, the lead is assigned to the API key owner" y "round_robin always
-   * wins over related". Las dos frases juntas obligan a elegir UNA:
+   * wins over related".
    *
-   *   - Si la propiedad tiene asesor, va a él (`related`). Conoce la
-   *     propiedad y puede responder con detalle en la primera llamada.
-   *   - Si no lo tiene, o la consulta no es de una ficha concreta, entra al
-   *     reparto por turnos del sitio (`round_robin`).
+   * Antes esta función mandaba `related` cuando la ficha traía asesor, y solo
+   * caía al reparto por turnos si no lo tenía. Eso repartía los leads según
+   * quién hubiera cargado la propiedad en el CRM — que no es lo mismo que
+   * quién está disponible para atender. Ahora entra todo por la ruleta, que
+   * es la que Villanisa controla desde AlterEstate sin tocar código.
    *
-   * Mandar los dos NO es una red de seguridad: el round robin se impondría
-   * siempre y el asesor de la propiedad no recibiría nunca su lead.
+   * El asesor de la ficha no se pierde: va en las notas del lead, para que
+   * quien lo reciba sepa a quién preguntarle por esa propiedad.
+   *
+   * Para volver al reparto por ficha, esto es una línea: devolver
+   * `asesor ? { related: asesor } : ...`.
    */
   // Vienen del cliente: se acotan a la forma que emite el propio sitio para
   // que nadie pueda dirigir spam a un asesor concreto ni inventar un uid.
@@ -92,14 +97,12 @@ export const POST: APIRoute = async ({ request }) => {
     : '';
   const ruletaSitio = env('ALTERESTATE_ROUND_ROBIN_UID');
 
-  const asignacion: Record<string, string> = asesor
-    ? { related: asesor }
-    : ruletaSitio
-      ? { round_robin: ruletaSitio }
-      : {};
+  const asignacion: Record<string, string> = ruletaSitio
+    ? { round_robin: ruletaSitio }
+    : {};
 
-  if (!asesor && !ruletaSitio) {
-    console.warn('[lead] sin asesor ni round robin: se asignará al dueño de la clave');
+  if (!ruletaSitio) {
+    console.warn('[lead] sin ALTERESTATE_ROUND_ROBIN_UID: el lead caerá en el dueño de la clave');
   }
 
   const utm: Record<string, string> = {};
@@ -123,7 +126,7 @@ export const POST: APIRoute = async ({ request }) => {
     propiedad_uid: propiedad || undefined,
     propiedad_nombre: recortar(body.property_name, 200) || undefined,
     asesor_ref: asesor || undefined,
-    asignado_a: asesor ? `asesor:${asesor}` : ruletaSitio ? 'round_robin' : 'dueño de la clave',
+    asignado_a: ruletaSitio ? 'round_robin' : 'dueño de la clave',
     pagina: recortar(body.page_url, 500) || undefined,
     formulario: recortar(body.form_name, 60) || 'web',
     referente: recortar(body.referrer ?? request.headers.get('referer'), 500) || undefined,
@@ -139,11 +142,20 @@ export const POST: APIRoute = async ({ request }) => {
   /* ------------------------------------------------------------------ *
    * 2. Después, la réplica al CRM.
    * ------------------------------------------------------------------ */
+  /**
+   * El asesor de la ficha ya no dirige el lead, pero sigue siendo el dato
+   * más útil para quien lo atienda: es quien conoce esa propiedad. Va al
+   * final de las notas para que aparezca en el CRM.
+   */
+  const notasCRM = [notas, asesor ? `Asesor de la ficha: ${asesor}` : '']
+    .filter(Boolean)
+    .join('\n');
+
   const lead: Record<string, unknown> = {
     full_name,
     email,
     phone,
-    notes: notas,
+    notes: notasCRM,
     form_name: body.form_name ?? 'web',
     // Valores que espera la API, no texto libre: 'website' y 1 = compra.
     platform: 'website',
@@ -192,28 +204,19 @@ export const POST: APIRoute = async ({ request }) => {
     });
 
   try {
-    let res = await enviar(lead);
+    const res = await enviar(lead);
 
     /**
-     * Si el asesor de la propiedad no existe como usuario del CRM —se fue de
-     * la empresa, o la ficha arrastra un correo viejo— la API rechaza el
-     * lead entero. Se reintenta sin la asignación: cae en el round robin o
-     * en el dueño de la clave, pero entra.
+     * Aquí vivía un reintento sin `related` para cuando el asesor de la ficha
+     * ya no existía en el CRM y la API rechazaba el lead entero. Al mandar
+     * siempre `round_robin`, ese fallo dejó de ser posible: la regla de
+     * reparto la administra Villanisa y no depende de un correo viejo
+     * arrastrado en una propiedad.
      *
-     * Solo ante un 400. Un 429 o un 500 son fallos del CRM, y reintentar ahí
-     * puede crear el lead DOS veces: el primer envío pudo procesarse antes
+     * No se reintenta ante 429 ni 500: son fallos del CRM, y reintentar ahí
+     * puede crear el lead DOS veces — el primer envío pudo procesarse antes
      * de que fallara la respuesta.
      */
-    if (res.status === 400 && asesor) {
-      const detalle = await res.text();
-      console.warn('[lead] asignación a', asesor, 'rechazada:', detalle.slice(0, 200));
-      const { related, ...sinAsesor } = lead as Record<string, unknown> & { related?: string };
-      res = await enviar(ruletaSitio ? { ...sinAsesor, round_robin: ruletaSitio } : sinAsesor);
-      if (res.ok && idPropio) {
-        await marcarCRM(idPropio, 'enviado', `Reasignado: el asesor ${asesor} fue rechazado`);
-        return responder(true, true);
-      }
-    }
 
     if (!res.ok) {
       const text = await res.text();
