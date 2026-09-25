@@ -1,0 +1,354 @@
+---
+/**
+ * Panel · Ruleta de asesores — Fase 4.
+ *
+ * La rotación visible: quién está en el reparto, a quién le toca ahora y
+ * cuántos ha recibido cada uno. En AlterEstate esto era una pantalla que
+ * marcaba "0 asignados" con leads ya entregados; aquí el número sale de la
+ * misma tabla que hace el reparto, así que no puede mentir.
+ *
+ * Se renderiza en el servidor, como /panel/leads: la clave del almacén tiene
+ * permiso total y no puede pasar por el navegador.
+ */
+import Base from '../../layouts/Base.astro';
+import { verificarBasic, RETO, env } from '../../lib/auth';
+import { listarAsesores, disponibleAhora, type Asesor } from '../../lib/ruleta';
+
+export const prerender = false;
+
+const veredicto = verificarBasic(Astro.request.headers.get('authorization'));
+if (!veredicto.ok && veredicto.motivo === 'sin-clave') {
+  return new Response(
+    'El panel no tiene clave configurada. Define PANEL_CLAVE en las variables de entorno.',
+    { status: 503, headers: { 'Cache-Control': 'no-store' } }
+  );
+}
+if (!veredicto.ok) return new Response('Acceso restringido', { status: 401, headers: RETO });
+
+Astro.response.headers.set('Cache-Control', 'no-store');
+
+let asesores: Asesor[] = [];
+let error: string | null = null;
+try {
+  asesores = await listarAsesores();
+} catch (err) {
+  error = (err as Error).message;
+}
+
+const ahora = new Date();
+const disponibles = asesores.filter((a) => disponibleAhora(a, ahora));
+
+/**
+ * A quién le toca el próximo lead: el disponible con el turno más antiguo.
+ * Es el mismo criterio que usa la función de la base — si aquí se calculara
+ * distinto, el panel enseñaría una cosa y el reparto haría otra.
+ */
+const proximo =
+  [...disponibles].sort((a, b) => {
+    const ta = a.ultimo_en ? new Date(a.ultimo_en).getTime() : -1;
+    const tb = b.ultimo_en ? new Date(b.ultimo_en).getTime() : -1;
+    return ta - tb || a.orden - b.orden;
+  })[0] ?? null;
+
+const rotos = asesores.filter((a) => a.ae_rechazado);
+const sinRef = asesores.filter((a) => a.activo && !a.ae_ref && !a.ae_rechazado);
+
+const fecha = (iso: string | null) =>
+  iso
+    ? new Date(iso).toLocaleString('es-DO', {
+        day: '2-digit',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '—';
+
+const horario = (a: Asesor) =>
+  a.hora_desde === null || a.hora_hasta === null
+    ? 'Siempre'
+    : `${String(a.hora_desde).padStart(2, '0')}:00–${String(a.hora_hasta).padStart(2, '0')}:59`;
+
+const estado = (a: Asesor) => {
+  if (a.ae_rechazado) return { t: 'Referencia rechazada', mal: true };
+  if (!a.activo) return { t: 'Inactivo', mal: false };
+  if (a.pausado_hasta && new Date(a.pausado_hasta) > ahora)
+    return { t: `Pausado hasta ${fecha(a.pausado_hasta)}`, mal: false };
+  if (!disponibleAhora(a, ahora)) return { t: 'Fuera de horario', mal: false };
+  return { t: 'Disponible', mal: false };
+};
+---
+
+<Base title="Panel · Ruleta de asesores" description="Reparto de leads del sitio." noindex={true}>
+  <section class="container-x pt-12">
+    <p class="eyebrow">Interno</p>
+    <h1 class="mt-3 text-[clamp(1.9rem,4vw,2.8rem)] leading-tight">Ruleta de asesores</h1>
+    <p class="mt-4 max-w-2xl text-[1rem] leading-relaxed text-[var(--text-soft)]">
+      El reparto de los leads que entran por el sitio. Le toca siempre a quien lleva
+      más tiempo sin recibir uno, entre los que están disponibles. Los cambios
+      aquí surten efecto en el próximo lead, sin desplegar nada.
+    </p>
+    <p class="mt-4 text-[0.9rem]">
+      <a class="underline underline-offset-4" href="/panel/leads/">Ver los leads recibidos →</a>
+      <span class="mx-2 text-[var(--text-mute)]">·</span>
+      <a class="underline underline-offset-4" href="/panel/">Panel de inventario</a>
+    </p>
+  </section>
+
+  {error && (
+    <section class="container-x mt-8">
+      <div class="rounded-xl border border-red-300 bg-red-50 p-5 text-[0.95rem]">
+        <p class="font-semibold">No se pudo leer la ruleta.</p>
+        <p class="mt-2 text-[var(--text-soft)]">{error}</p>
+        <p class="mt-2 text-[var(--text-soft)]">
+          Si la tabla todavía no existe, corre <code>supabase/03-ruleta.sql</code> en Supabase.
+          Mientras tanto los leads se reparten con el round robin de AlterEstate.
+        </p>
+      </div>
+    </section>
+  )}
+
+  {!error && (
+    <>
+      <section class="container-x mt-10">
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div class="rounded-xl border border-[var(--border)] p-4">
+            <p class="text-2xl font-semibold">{asesores.length}</p>
+            <p class="mt-1 text-[0.8rem] text-[var(--text-mute)]">En la ruleta</p>
+          </div>
+          <div class="rounded-xl border border-[var(--border)] p-4">
+            <p class="text-2xl font-semibold">{disponibles.length}</p>
+            <p class="mt-1 text-[0.8rem] text-[var(--text-mute)]">Disponibles ahora</p>
+          </div>
+          <div class="rounded-xl border border-[var(--border)] p-4">
+            <p class="truncate text-[1.15rem] font-semibold">{proximo?.nombre ?? '—'}</p>
+            <p class="mt-1 text-[0.8rem] text-[var(--text-mute)]">Le toca el próximo</p>
+          </div>
+          <div class={`rounded-xl border p-4 ${rotos.length ? 'border-[var(--color-gold-600)] bg-[#fdf8ec]' : 'border-[var(--border)]'}`}>
+            <p class="text-2xl font-semibold">{rotos.length}</p>
+            <p class="mt-1 text-[0.8rem] text-[var(--text-mute)]">Con referencia rota</p>
+          </div>
+        </div>
+      </section>
+
+      {asesores.length === 0 && (
+        <section class="container-x mt-8">
+          <div class="rounded-xl border border-[var(--border)] p-6 text-[0.95rem] text-[var(--text-soft)]">
+            <p class="font-semibold text-[var(--text)]">La ruleta está vacía.</p>
+            <p class="mt-2">
+              Mientras no haya nadie aquí, los leads siguen repartiéndose con el round
+              robin de AlterEstate, exactamente como antes. Añade el primer asesor abajo
+              y la ruleta propia toma el mando en el siguiente lead.
+            </p>
+          </div>
+        </section>
+      )}
+
+      {rotos.length > 0 && (
+        <section class="container-x mt-6">
+          <div class="rounded-xl border border-[var(--color-gold-600)] bg-[#fdf8ec] p-5 text-[0.95rem]">
+            <p class="font-semibold">
+              {rotos.length === 1 ? 'Un asesor quedó fuera' : `${rotos.length} asesores quedaron fuera`} del reparto.
+            </p>
+            <p class="mt-2 text-[var(--text-soft)]">
+              AlterEstate rechazó su referencia: el usuario no existe allá, o el correo
+              cambió. No les toca turno hasta que se corrija. Arregla la referencia y
+              vuelven solos al reparto.
+            </p>
+          </div>
+        </section>
+      )}
+
+      {sinRef.length > 0 && (
+        <section class="container-x mt-6">
+          <div class="rounded-xl border border-[var(--border)] p-5 text-[0.95rem]">
+            <p class="font-semibold">
+              {sinRef.length === 1 ? 'Un asesor sin' : `${sinRef.length} asesores sin`} usuario de AlterEstate.
+            </p>
+            <p class="mt-2 text-[var(--text-soft)]">
+              Reciben turno y quedan registrados aquí, pero en el CRM el lead entra por
+              el round robin de ellos, no a su nombre. La nota del lead dice a quién le
+              tocaba. Pon su correo de AlterEstate para cerrar el círculo.
+            </p>
+          </div>
+        </section>
+      )}
+
+      <section class="container-x mt-8 mb-10">
+        <div class="overflow-x-auto rounded-xl border border-[var(--border)]">
+          <table class="w-full min-w-[60rem] border-collapse text-left text-[0.88rem]">
+            <thead class="bg-[var(--color-bone-100)] text-[0.78rem] uppercase tracking-wide text-[var(--text-mute)]">
+              <tr>
+                <th class="p-3 font-semibold">Asesor</th>
+                <th class="p-3 font-semibold">AlterEstate</th>
+                <th class="p-3 font-semibold">Zonas</th>
+                <th class="p-3 font-semibold">Horario</th>
+                <th class="p-3 font-semibold">Pausa</th>
+                <th class="p-3 font-semibold">Orden</th>
+                <th class="p-3 font-semibold">Recibidos</th>
+                <th class="p-3 font-semibold">Estado</th>
+                <th class="p-3 font-semibold"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {asesores.map((a) => {
+                const e = estado(a);
+                return (
+                  <tr
+                    class={`fila border-t border-[var(--border)] align-top ${proximo?.id === a.id ? 'bg-[var(--color-brand-50)]' : ''}`}
+                    data-id={a.id}
+                  >
+                    <td class="p-3">
+                      <input class="c w-[11rem] rounded-lg border border-[var(--border-control)] bg-[var(--surface-raised)] px-2.5 py-1.5" data-k="nombre" value={a.nombre} />
+                      <br />
+                      <input class="c mt-1.5 w-[11rem] rounded-lg border border-[var(--border-control)] bg-[var(--surface-raised)] px-2.5 py-1.5 text-[0.82rem]" data-k="telefono" value={a.telefono ?? ''} placeholder="Teléfono" />
+                    </td>
+                    <td class="p-3">
+                      <input class="c w-[13rem] rounded-lg border border-[var(--border-control)] bg-[var(--surface-raised)] px-2.5 py-1.5" data-k="ae_ref" value={a.ae_ref ?? ''} placeholder="correo o UID" />
+                      {a.ae_detalle && (
+                        <p class="mt-1.5 max-w-[13rem] text-[0.72rem] text-[var(--text-mute)]">{a.ae_detalle}</p>
+                      )}
+                    </td>
+                    <td class="p-3">
+                      <input class="c w-[11rem] rounded-lg border border-[var(--border-control)] bg-[var(--surface-raised)] px-2.5 py-1.5" data-k="zonas" value={a.zonas.join(', ')} placeholder="todas" />
+                      <p class="mt-1 text-[0.72rem] text-[var(--text-mute)]">vacío = todas</p>
+                    </td>
+                    <td class="whitespace-nowrap p-3">
+                      <input class="c w-[3.4rem] rounded-lg border border-[var(--border-control)] bg-[var(--surface-raised)] px-2 py-1.5" data-k="hora_desde" value={a.hora_desde ?? ''} placeholder="—" />
+                      <span class="mx-1 text-[var(--text-mute)]">a</span>
+                      <input class="c w-[3.4rem] rounded-lg border border-[var(--border-control)] bg-[var(--surface-raised)] px-2 py-1.5" data-k="hora_hasta" value={a.hora_hasta ?? ''} placeholder="—" />
+                      <p class="mt-1 text-[0.72rem] text-[var(--text-mute)]">{horario(a)}</p>
+                    </td>
+                    <td class="p-3">
+                      <input type="date" class="c rounded-lg border border-[var(--border-control)] bg-[var(--surface-raised)] px-2 py-1.5 text-[0.82rem]" data-k="pausado_hasta" value={a.pausado_hasta ? a.pausado_hasta.slice(0, 10) : ''} />
+                    </td>
+                    <td class="p-3">
+                      <input class="c w-[3.6rem] rounded-lg border border-[var(--border-control)] bg-[var(--surface-raised)] px-2 py-1.5" data-k="orden" value={a.orden} />
+                    </td>
+                    <td class="whitespace-nowrap p-3">
+                      <span class="font-semibold">{a.recibidos}</span>
+                      <br />
+                      <span class="text-[0.75rem] text-[var(--text-mute)]">{fecha(a.ultimo_en)}</span>
+                    </td>
+                    <td class="p-3">
+                      <label class="flex items-center gap-2 text-[0.82rem]">
+                        <input type="checkbox" class="c" data-k="activo" checked={a.activo} /> Activo
+                      </label>
+                      <p class={`mt-1.5 text-[0.75rem] ${e.mal ? 'text-[var(--color-gold-600)]' : 'text-[var(--text-mute)]'}`}>{e.t}</p>
+                    </td>
+                    <td class="whitespace-nowrap p-3">
+                      <button type="button" class="guardar rounded-full bg-[var(--color-brand-500)] px-3 py-1.5 text-[0.78rem] text-white">Guardar</button>
+                      <br />
+                      <button type="button" class="borrar mt-2 text-[0.75rem] text-[var(--text-mute)] underline underline-offset-2">Quitar</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="container-x mb-20">
+        <div class="rounded-xl border border-[var(--border)] p-6">
+          <h2 class="text-[1.2rem]">Añadir asesor</h2>
+          <div class="mt-4 flex flex-wrap items-end gap-3">
+            <label class="text-[0.82rem] text-[var(--text-mute)]">
+              Nombre
+              <input id="n-nombre" class="mt-1 block w-[12rem] rounded-lg border border-[var(--border-control)] bg-[var(--surface-raised)] px-3 py-2 text-[0.9rem] text-[var(--text)]" />
+            </label>
+            <label class="text-[0.82rem] text-[var(--text-mute)]">
+              Correo o UID de AlterEstate
+              <input id="n-ref" class="mt-1 block w-[14rem] rounded-lg border border-[var(--border-control)] bg-[var(--surface-raised)] px-3 py-2 text-[0.9rem] text-[var(--text)]" />
+            </label>
+            <label class="text-[0.82rem] text-[var(--text-mute)]">
+              Teléfono
+              <input id="n-tel" class="mt-1 block w-[10rem] rounded-lg border border-[var(--border-control)] bg-[var(--surface-raised)] px-3 py-2 text-[0.9rem] text-[var(--text)]" />
+            </label>
+            <label class="text-[0.82rem] text-[var(--text-mute)]">
+              Zonas (opcional)
+              <input id="n-zonas" class="mt-1 block w-[12rem] rounded-lg border border-[var(--border-control)] bg-[var(--surface-raised)] px-3 py-2 text-[0.9rem] text-[var(--text)]" placeholder="punta-cana, santiago" />
+            </label>
+            <button id="n-crear" type="button" class="btn btn-primary">Añadir</button>
+          </div>
+          <p class="mt-4 max-w-2xl text-[0.85rem] leading-relaxed text-[var(--text-mute)]">
+            Las zonas son los slugs de ciudad tal como los usa el sitio:
+            <code>santo-domingo-d-n</code>, <code>santo-domingo-este</code>,
+            <code>punta-cana</code>, <code>santiago</code>. Un asesor sin zonas atiende
+            todo. Si una zona se queda sin nadie disponible, el lead no se pierde: pasa
+            al siguiente de la ruleta general.
+          </p>
+        </div>
+      </section>
+
+      <script is:inline>
+        const pedir = async (cuerpo) => {
+          const r = await fetch('/api/asesores', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(cuerpo),
+          });
+          const d = await r.json();
+          if (!d.ok) throw new Error(d.error || 'no se pudo guardar');
+        };
+
+        document.addEventListener('click', async (e) => {
+          const fila = e.target.closest('.fila');
+
+          if (e.target.classList.contains('guardar')) {
+            const b = e.target;
+            const antes = b.textContent;
+            b.disabled = true;
+            b.textContent = 'Guardando…';
+            const datos = {};
+            fila.querySelectorAll('.c').forEach((el) => {
+              datos[el.dataset.k] = el.type === 'checkbox' ? el.checked : el.value;
+            });
+            try {
+              await pedir({ accion: 'guardar', id: fila.dataset.id, datos });
+              location.reload();
+            } catch (err) {
+              b.disabled = false;
+              b.textContent = antes;
+              alert('No se pudo guardar: ' + err.message);
+            }
+            return;
+          }
+
+          if (e.target.classList.contains('borrar')) {
+            const nombre = fila.querySelector('[data-k="nombre"]').value;
+            // Quitar a alguien de la ruleta borra su historial de turnos. Para
+            // una ausencia temporal está "Activo" o la pausa, que lo conservan.
+            if (!confirm(`¿Quitar a ${nombre} de la ruleta?\n\nPara una ausencia temporal es mejor desmarcar "Activo" o poner una pausa.`)) return;
+            try {
+              await pedir({ accion: 'borrar', id: fila.dataset.id });
+              location.reload();
+            } catch (err) {
+              alert('No se pudo quitar: ' + err.message);
+            }
+            return;
+          }
+
+          if (e.target.id === 'n-crear') {
+            const b = e.target;
+            b.disabled = true;
+            try {
+              await pedir({
+                accion: 'crear',
+                datos: {
+                  nombre: document.getElementById('n-nombre').value,
+                  ae_ref: document.getElementById('n-ref').value,
+                  telefono: document.getElementById('n-tel').value,
+                  zonas: document.getElementById('n-zonas').value,
+                },
+              });
+              location.reload();
+            } catch (err) {
+              b.disabled = false;
+              alert('No se pudo añadir: ' + err.message);
+            }
+          }
+        });
+      </script>
+    </>
+  )}
+</Base>

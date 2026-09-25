@@ -37,7 +37,15 @@ En Vercel se configuran en *Project Settings → Environment Variables*.
 
 Sin `SUPABASE_URL` y `SUPABASE_SERVICE_KEY` el sitio sigue funcionando: los leads
 van directos a AlterEstate como antes, y `/panel/leads` lo avisa en pantalla.
-La tabla se crea con `supabase/01-leads.sql` y `supabase/02-atencion.sql`.
+La tabla se crea con `supabase/01-leads.sql`, `supabase/02-atencion.sql` y
+`supabase/03-ruleta.sql`, en ese orden.
+
+**El reparto de leads.** La ruleta propia (tabla `asesores`) decide a quién le
+toca cada lead del sitio y se administra en `/panel/asesores`. Si la tabla está
+vacía o la base falla, el reparto vuelve solo al round robin de AlterEstate:
+instalar esto sin cargar asesores no cambia nada. El turno se elige y se marca
+dentro de la base, en `siguiente_asesor()`, porque hacerlo en dos pasos desde el
+sitio le daría el mismo asesor a dos leads simultáneos.
 
 Sin las variables de WhatsApp, la Fase 3 sigue siendo útil: el botón «Ya lo
 contacté», el tiempo de respuesta y los pendientes marcados funcionan igual;

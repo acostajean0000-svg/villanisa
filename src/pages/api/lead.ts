@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { env } from '../../lib/auth';
 import { guardarLead, marcarCRM, almacenConfigurado, type LeadNuevo } from '../../lib/leads';
+import { siguienteAsesor, marcarRefRechazada } from '../../lib/ruleta';
 
 // Esta ruta corre en el servidor (función de Vercel), no en el navegador.
 // Es lo que permite que la API key del CRM nunca llegue al cliente.
@@ -15,6 +16,8 @@ interface Payload {
   notes?: string;
   property_uid?: string;
   property_name?: string;
+  /** Slug de la ciudad de la propiedad, para el reparto por zona. */
+  property_zona?: string;
   agent_ref?: string;
   form_name?: string;
   website?: string; // honeypot
@@ -68,23 +71,23 @@ export const POST: APIRoute = async ({ request }) => {
   // Nota: el asesor de la ficha se añade más abajo, después de validarlo.
 
   /**
-   * A quién se le asigna el lead: SIEMPRE al round robin.
+   * A quién se le asigna el lead.
    *
    * Regla de AlterEstate, textual: "If neither `related` nor `round_robin` is
    * sent, the lead is assigned to the API key owner" y "round_robin always
-   * wins over related".
+   * wins over related". Las dos frases juntas obligan a mandar UNO solo.
    *
-   * Antes esta función mandaba `related` cuando la ficha traía asesor, y solo
-   * caía al reparto por turnos si no lo tenía. Eso repartía los leads según
-   * quién hubiera cargado la propiedad en el CRM — que no es lo mismo que
-   * quién está disponible para atender. Ahora entra todo por la ruleta, que
-   * es la que Villanisa controla desde AlterEstate sin tocar código.
+   * El orden de mando quedó así:
    *
-   * El asesor de la ficha no se pierde: va en las notas del lead, para que
-   * quien lo reciba sepa a quién preguntarle por esa propiedad.
+   *   1. La ruleta propia de Villanisa (tabla `asesores`) elige a quién le
+   *      toca, con sus reglas de zona, horario y vacaciones.
+   *   2. Si ese asesor tiene usuario en AlterEstate, se manda `related` para
+   *      que el lead aparezca a su nombre allá.
+   *   3. Si la ruleta no tiene a nadie —tabla vacía, todos pausados, base
+   *      caída— se entrega al round robin del CRM, como antes.
    *
-   * Para volver al reparto por ficha, esto es una línea: devolver
-   * `asesor ? { related: asesor } : ...`.
+   * El asesor que cargó la ficha ya no dirige nada: va en las notas, que es
+   * donde sirve — quien atienda sabe a quién preguntarle por esa propiedad.
    */
   // Vienen del cliente: se acotan a la forma que emite el propio sitio para
   // que nadie pueda dirigir spam a un asesor concreto ni inventar un uid.
@@ -97,12 +100,36 @@ export const POST: APIRoute = async ({ request }) => {
     : '';
   const ruletaSitio = env('ALTERESTATE_ROUND_ROBIN_UID');
 
-  const asignacion: Record<string, string> = ruletaSitio
-    ? { round_robin: ruletaSitio }
-    : {};
+  /**
+   * El reparto: primero la ruleta propia, y AlterEstate como red de seguridad.
+   *
+   * `siguienteAsesor` consulta la tabla de Villanisa y marca el turno en una
+   * sola operación (ver supabase/03-ruleta.sql). Devuelve null si la tabla
+   * está vacía, si nadie está disponible o si la base falla — y entonces todo
+   * sigue exactamente como antes, con el round robin de AlterEstate. Esa es
+   * la razón de que instalar esto sin cargar asesores no cambie nada: la
+   * ruleta propia solo manda cuando de verdad tiene a quién mandar.
+   */
+  const zona = /^[a-z0-9-]{2,60}$/.test(recortar(body.property_zona, 60))
+    ? recortar(body.property_zona, 60)
+    : '';
+  const turno = await siguienteAsesor(zona || null);
 
-  if (!ruletaSitio) {
-    console.warn('[lead] sin ALTERESTATE_ROUND_ROBIN_UID: el lead caerá en el dueño de la clave');
+  /**
+   * `related` solo si el asesor tiene referencia en AlterEstate. Si no la
+   * tiene, el lead igual es suyo —queda registrado aquí y se ve en el panel—
+   * pero al CRM hay que entregarlo por el round robin, porque allá no existe
+   * forma de nombrarlo. La nota lo dice en letras para que un humano lo vea.
+   */
+  const asignacion: Record<string, string> =
+    turno?.ae_ref
+      ? { related: turno.ae_ref }
+      : ruletaSitio
+        ? { round_robin: ruletaSitio }
+        : {};
+
+  if (!turno && !ruletaSitio) {
+    console.warn('[lead] sin ruleta propia ni ALTERESTATE_ROUND_ROBIN_UID: caerá en el dueño de la clave');
   }
 
   const utm: Record<string, string> = {};
@@ -126,7 +153,12 @@ export const POST: APIRoute = async ({ request }) => {
     propiedad_uid: propiedad || undefined,
     propiedad_nombre: recortar(body.property_name, 200) || undefined,
     asesor_ref: asesor || undefined,
-    asignado_a: ruletaSitio ? 'round_robin' : 'dueño de la clave',
+    asesor_id: turno?.id,
+    asignado_a: turno
+      ? `ruleta: ${turno.nombre}`
+      : ruletaSitio
+        ? 'round_robin'
+        : 'dueño de la clave',
     pagina: recortar(body.page_url, 500) || undefined,
     formulario: recortar(body.form_name, 60) || 'web',
     referente: recortar(body.referrer ?? request.headers.get('referer'), 500) || undefined,
@@ -147,7 +179,14 @@ export const POST: APIRoute = async ({ request }) => {
    * más útil para quien lo atienda: es quien conoce esa propiedad. Va al
    * final de las notas para que aparezca en el CRM.
    */
-  const notasCRM = [notas, asesor ? `Asesor de la ficha: ${asesor}` : '']
+  const notasCRM = [
+    notas,
+    // A quién le tocó por la ruleta de Villanisa. Cuando el asesor no tiene
+    // referencia en AlterEstate, esta línea es lo ÚNICO que se lo dice a
+    // quien abra el lead allá.
+    turno ? `Le toca a: ${turno.nombre}${turno.ae_ref ? '' : ' (sin usuario en AlterEstate)'}` : '',
+    asesor ? `Asesor de la ficha: ${asesor}` : '',
+  ]
     .filter(Boolean)
     .join('\n');
 
@@ -204,19 +243,36 @@ export const POST: APIRoute = async ({ request }) => {
     });
 
   try {
-    const res = await enviar(lead);
+    let res = await enviar(lead);
 
     /**
-     * Aquí vivía un reintento sin `related` para cuando el asesor de la ficha
-     * ya no existía en el CRM y la API rechazaba el lead entero. Al mandar
-     * siempre `round_robin`, ese fallo dejó de ser posible: la regla de
-     * reparto la administra Villanisa y no depende de un correo viejo
-     * arrastrado en una propiedad.
+     * Si AlterEstate rechaza la referencia del asesor —se fue de la empresa,
+     * el correo cambió— devuelve 400 y tumba el lead entero. Se reintenta UNA
+     * vez entregándolo al round robin de ellos, y se marca al asesor para que
+     * la ruleta deje de darle turno hasta que alguien corrija su referencia.
+     * Así el mismo dato malo falla una vez, no en cada lead.
      *
-     * No se reintenta ante 429 ni 500: son fallos del CRM, y reintentar ahí
-     * puede crear el lead DOS veces — el primer envío pudo procesarse antes
-     * de que fallara la respuesta.
+     * Solo ante un 400. Un 429 o un 500 son fallos del CRM, y reintentar ahí
+     * puede crear el lead DOS veces: el primer envío pudo procesarse antes de
+     * que fallara la respuesta.
      */
+    if (res.status === 400 && turno?.ae_ref) {
+      const detalle = (await res.text()).slice(0, 300);
+      console.warn('[lead] AlterEstate rechazó a', turno.ae_ref, '—', detalle);
+      await marcarRefRechazada(turno.id, `HTTP 400: ${detalle}`);
+      const { related, ...sinAsesor } = lead as Record<string, unknown> & { related?: string };
+      res = await enviar(ruletaSitio ? { ...sinAsesor, round_robin: ruletaSitio } : sinAsesor);
+      if (res.ok) {
+        if (idPropio) {
+          await marcarCRM(
+            idPropio,
+            'enviado',
+            `${turno.nombre} no existe en AlterEstate; entró por el round robin del CRM`
+          );
+        }
+        return responder(true, true);
+      }
+    }
 
     if (!res.ok) {
       const text = await res.text();

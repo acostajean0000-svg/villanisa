@@ -27,6 +27,8 @@ export interface LeadNuevo {
   propiedad_nombre?: string;
   asesor_ref?: string;
   asignado_a?: string;
+  /** Fase 4: a quién le tocó por la ruleta propia. */
+  asesor_id?: string | null;
   pagina?: string;
   formulario?: string;
   utm_source?: string;
@@ -47,6 +49,9 @@ export interface LeadGuardado extends LeadNuevo {
   atendido_en: string | null;
   atendido_por: string | null;
   alertado_en: string | null;
+  // Fase 4
+  asesor_id: string | null;
+  reasignaciones: number;
 }
 
 const TIEMPO_LIMITE = 8_000;
@@ -242,4 +247,58 @@ export function medianaRespuesta(leads: LeadGuardado[]): number | null {
   if (!v.length) return null;
   const m = Math.floor(v.length / 2);
   return v.length % 2 ? v[m] : Math.round((v[m - 1] + v[m]) / 2);
+}
+
+/**
+ * Reasigna un lead sin atender al asesor que sigue en la ruleta — Fase 4.
+ *
+ * Se llama desde el reloj de alertas. Devuelve false si alguien lo atendió
+ * entre medias: el filtro `atendido_en=is.null` está en la propia consulta,
+ * así que un asesor que contesta justo cuando salta el reloj no pierde su
+ * lead por una carrera de milisegundos.
+ */
+export async function reasignarLead(
+  id: string,
+  nuevo: { id: string; nombre: string }
+): Promise<boolean> {
+  const cred = credenciales();
+  if (!cred) return false;
+  try {
+    const res = await fetch(
+      `${cred.url}/rest/v1/leads?id=eq.${encodeURIComponent(id)}&atendido_en=is.null`,
+      {
+        method: 'PATCH',
+        headers: cabeceras(cred.clave, { Prefer: 'return=representation' }),
+        body: JSON.stringify({
+          asesor_id: nuevo.id,
+          asignado_a: `ruleta: ${nuevo.nombre} (reasignado)`,
+          // Se limpia para que el reloj vuelva a vigilarlo: el nuevo asesor
+          // estrena su propio plazo, no hereda el que ya venció.
+          alertado_en: null,
+        }),
+        signal: AbortSignal.timeout(TIEMPO_LIMITE),
+      }
+    );
+    if (!res.ok) return false;
+    return ((await res.json()) as unknown[]).length > 0;
+  } catch (err) {
+    console.error('[leads] no se pudo reasignar:', (err as Error).message);
+    return false;
+  }
+}
+
+/** Suma uno al contador de reasignaciones, con el valor ya leído. */
+export async function sumarReasignacion(id: string, actual: number): Promise<void> {
+  const cred = credenciales();
+  if (!cred) return;
+  try {
+    await fetch(`${cred.url}/rest/v1/leads?id=eq.${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: cabeceras(cred.clave, { Prefer: 'return=minimal' }),
+      body: JSON.stringify({ reasignaciones: actual + 1 }),
+      signal: AbortSignal.timeout(TIEMPO_LIMITE),
+    });
+  } catch {
+    /* el contador es informativo: que falle no justifica romper el ciclo */
+  }
 }

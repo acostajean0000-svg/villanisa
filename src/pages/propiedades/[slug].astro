@@ -400,6 +400,7 @@ const breadcrumbs = {
             propertyUid={detail.uid}
             propertyName={detail.name}
             agentRef={agente?.email || agente?.uid || ''}
+            propertyZona={slugify(detail.city ?? '')}
             formName="ficha-propiedad"
           />
 

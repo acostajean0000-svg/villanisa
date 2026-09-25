@@ -4,6 +4,8 @@ export interface Props {
   propertyName?: string;
   /** Correo o UID del asesor de la propiedad, si lo tiene. */
   agentRef?: string;
+  /** Slug de la ciudad, para que la ruleta reparta por zona. */
+  propertyZona?: string;
   formName: string;
   compact?: boolean;
 }
@@ -12,6 +14,7 @@ const {
   propertyUid = '',
   propertyName = '',
   agentRef = '',
+  propertyZona = '',
   formName,
   compact = false,
 } = Astro.props;
@@ -22,6 +25,7 @@ const id = `lf-${Math.random().toString(36).slice(2, 8)}`;
   <input type="hidden" name="property_uid" value={propertyUid} />
   <input type="hidden" name="property_name" value={propertyName} />
   <input type="hidden" name="agent_ref" value={agentRef} />
+  <input type="hidden" name="property_zona" value={propertyZona} />
   <input type="hidden" name="form_name" value={formName} />
   <!-- Trampa antispam: un bot la llena, una persona nunca la ve -->
   <input type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" class="hidden" />

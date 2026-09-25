@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { verificarBasic, RETO, env } from '../../lib/auth';
-import { leadsSinAtender, marcarAlertado } from '../../lib/leads';
+import { leadsSinAtender, marcarAlertado, reasignarLead, sumarReasignacion } from '../../lib/leads';
+import { siguienteAsesor } from '../../lib/ruleta';
 import { avisarLeadSinAtender, whatsappConfigurado } from '../../lib/whatsapp';
 
 export const prerender = false;
@@ -49,14 +50,44 @@ async function ejecutar(request: Request): Promise<Response> {
   }
 
   if (pendientes.length === 0) {
-    return json({ ok: true, revisados: 0, avisados: 0, whatsapp: whatsappConfigurado() });
+    return json({ ok: true, revisados: 0, avisados: 0, reasignados: 0, whatsapp: whatsappConfigurado() });
   }
 
   let avisados = 0;
+  let reasignados = 0;
   const detalles: string[] = [];
+
+  // Cuántas veces se le puede quitar un lead a alguien antes de parar. Sin
+  // tope, un lead que nadie atiende daría vueltas al equipo entero toda la
+  // noche y convertiría la ruleta en una máquina de spam.
+  const TOPE_REASIGNACIONES = 2;
 
   for (const l of pendientes) {
     const espera_min = Math.round((Date.now() - new Date(l.creado_en).getTime()) / 60_000);
+
+    /**
+     * Reasignar por silencio — lo que AlterEstate no puede hacer.
+     *
+     * El dato de "ya lo contacté" vive en esta base, no en el CRM, así que
+     * solo desde aquí se sabe que nadie respondió. Se le pasa al siguiente de
+     * la ruleta y se avisa a nombre suyo.
+     *
+     * El orden importa: primero se reasigna, después se avisa. Si se avisara
+     * antes, el mensaje nombraría a quien acaba de perder el lead.
+     */
+    const reasignaciones = l.reasignaciones ?? 0;
+    if (reasignaciones < TOPE_REASIGNACIONES) {
+      const siguiente = await siguienteAsesor(null);
+      // Pasárselo a la misma persona no es reasignar, es dar vueltas.
+      if (siguiente && siguiente.id !== l.asesor_id) {
+        if (await reasignarLead(l.id, siguiente)) {
+          await sumarReasignacion(l.id, reasignaciones);
+          reasignados++;
+          detalles.push(`${l.nombre} → ${siguiente.nombre} (sin atender ${espera_min} min)`);
+        }
+      }
+    }
+
     const r = await avisarLeadSinAtender({
       nombre: l.nombre,
       telefono: l.telefono,
@@ -84,6 +115,7 @@ async function ejecutar(request: Request): Promise<Response> {
     ok: true,
     revisados: pendientes.length,
     avisados,
+    reasignados,
     whatsapp: whatsappConfigurado(),
     detalle: detalles.length ? detalles.slice(0, 3) : undefined,
   });
