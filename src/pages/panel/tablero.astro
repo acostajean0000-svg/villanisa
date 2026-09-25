@@ -1,0 +1,212 @@
+---
+/**
+ * Panel · Tablero — Fase 5.
+ *
+ * La vista del administrador: todos los leads, quién los tiene, en qué etapa
+ * están y cuánto se tarda en contestar. Es lo que se mira en la reunión del
+ * lunes, así que prioriza los números por asesor antes que la lista.
+ */
+import Base from '../../layouts/Base.astro';
+import FichaLead from '../../components/FichaLead.astro';
+import { identificar, aLaPuerta } from '../../lib/guardia';
+import { listarAsesores, type Asesor } from '../../lib/ruleta';
+import { medianaRespuesta } from '../../lib/leads';
+import {
+  ETAPAS,
+  ETAPA_NOMBRE,
+  ETAPAS_CERRADAS,
+  embudo,
+  esEtapa,
+  notasDeVarios,
+  todosLosLeads,
+  type Etapa,
+  type LeadCRM,
+  type Nota,
+} from '../../lib/crm';
+
+export const prerender = false;
+
+const quien = await identificar(Astro.request);
+if (quien.tipo === 'nadie') return aLaPuerta('/panel/tablero/');
+if (quien.tipo !== 'admin') return Astro.redirect('/panel/mis-leads/', 302);
+
+Astro.response.headers.set('Cache-Control', 'no-store');
+
+const filtroEtapa = Astro.url.searchParams.get('etapa');
+const etapaFiltro: Etapa | null = esEtapa(filtroEtapa) ? filtroEtapa : null;
+const filtroAsesor = Astro.url.searchParams.get('asesor');
+
+let leads: LeadCRM[] = [];
+let asesores: Asesor[] = [];
+let notas = new Map<string, Nota[]>();
+let error: string | null = null;
+
+try {
+  [leads, asesores] = await Promise.all([todosLosLeads(500), listarAsesores()]);
+} catch (err) {
+  error = (err as Error).message;
+}
+
+const nombrePor = new Map(asesores.map((a) => [a.id, a.nombre]));
+const cuenta = embudo(leads);
+const abierto = (l: LeadCRM) => !ETAPAS_CERRADAS.includes((l.etapa ?? 'nuevo') as Etapa);
+
+/** Una fila por asesor: carga abierta, cerrados y cuánto tarda en contestar. */
+const porAsesor = asesores.map((a) => {
+  const suyos = leads.filter((l) => l.asesor_id === a.id);
+  return {
+    asesor: a,
+    total: suyos.length,
+    abiertos: suyos.filter(abierto).length,
+    sinAtender: suyos.filter((l) => !l.atendido_en).length,
+    cerrados: suyos.filter((l) => l.etapa === 'cerrado').length,
+    mediana: medianaRespuesta(suyos),
+  };
+});
+
+// Los que la ruleta nunca tocó: llegaron antes de la Fase 4 o entraron cuando
+// no había nadie disponible. Conviene verlos: son los que nadie está mirando.
+const huerfanos = leads.filter((l) => !l.asesor_id);
+
+let visibles = leads;
+if (etapaFiltro) visibles = visibles.filter((l) => (l.etapa ?? 'nuevo') === etapaFiltro);
+else visibles = visibles.filter(abierto);
+if (filtroAsesor === 'sin') visibles = visibles.filter((l) => !l.asesor_id);
+else if (filtroAsesor) visibles = visibles.filter((l) => l.asesor_id === filtroAsesor);
+
+// Las notas se piden solo de lo que se va a pintar: con 500 leads en la tabla,
+// traerlas todas sería la consulta más cara de la pantalla y nadie las vería.
+if (!error) {
+  try {
+    notas = await notasDeVarios(visibles.slice(0, 100).map((l) => l.id));
+  } catch {
+    /* sin notas la ficha sigue sirviendo */
+  }
+}
+
+const ir = `/panel/tablero/${Astro.url.search}`;
+const paraReasignar = asesores.filter((a) => a.activo).map((a) => ({ id: a.id, nombre: a.nombre }));
+
+const enTiempo = (m: number | null) => (m === null ? '—' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h`);
+---
+
+<Base title="Tablero · Villanisa" description="Estado del pipeline." noindex={true}>
+  <section class="container-x pt-12">
+    <div class="flex flex-wrap items-baseline justify-between gap-3">
+      <div>
+        <p class="eyebrow">Interno</p>
+        <h1 class="mt-3 text-[clamp(1.7rem,4vw,2.5rem)] leading-tight">Tablero</h1>
+      </div>
+      <p class="text-[0.9rem]">
+        <a class="underline underline-offset-4" href="/panel/asesores/">Ruleta</a>
+        <span class="mx-2 text-[var(--text-mute)]">·</span>
+        <a class="underline underline-offset-4" href="/panel/leads/">Entrada de leads</a>
+        <span class="mx-2 text-[var(--text-mute)]">·</span>
+        <a class="underline underline-offset-4" href="/api/entrar?salir=1">Salir</a>
+      </p>
+    </div>
+  </section>
+
+  {error && (
+    <section class="container-x mt-8">
+      <div class="rounded-xl border border-[var(--color-gold-600)] bg-[#fdf3f3] p-5 text-[0.95rem]">
+        <p class="font-semibold">No se pudo leer el tablero.</p>
+        <p class="mt-2 text-[var(--text-soft)]">{error}</p>
+      </div>
+    </section>
+  )}
+
+  <!-- Embudo general -->
+  <section class="container-x mt-8">
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      {ETAPAS.map((e) => (
+        <a
+          href={`/panel/tablero/?etapa=${e}`}
+          class={`rounded-xl border p-4 ${etapaFiltro === e ? 'border-[var(--color-brand-600)] bg-[var(--color-brand-50)]' : 'border-[var(--line)]'}`}
+        >
+          <p class="text-[1.6rem] font-semibold leading-none">{cuenta[e]}</p>
+          <p class="mt-1 text-[0.82rem] text-[var(--text-mute)]">{ETAPA_NOMBRE[e]}</p>
+        </a>
+      ))}
+    </div>
+    <p class="mt-3 text-[0.85rem]">
+      <a class="underline underline-offset-4" href="/panel/tablero/">Ver solo los abiertos</a>
+      {huerfanos.length > 0 && (
+        <>
+          <span class="mx-2 text-[var(--text-mute)]">·</span>
+          <a class="underline underline-offset-4" href="/panel/tablero/?asesor=sin">
+            {huerfanos.length} sin asesor
+          </a>
+        </>
+      )}
+    </p>
+  </section>
+
+  <!-- Carga por asesor -->
+  {porAsesor.length > 0 && (
+    <section class="container-x mt-10">
+      <h2 class="text-[1.15rem] font-semibold">Por asesor</h2>
+      <div class="mt-3 overflow-x-auto">
+        <table class="w-full min-w-[34rem] border-collapse text-[0.92rem]">
+          <thead>
+            <tr class="border-b border-[var(--line)] text-left text-[var(--text-mute)]">
+              <th class="py-2 pr-4 font-medium">Asesor</th>
+              <th class="py-2 pr-4 font-medium">Abiertos</th>
+              <th class="py-2 pr-4 font-medium">Sin atender</th>
+              <th class="py-2 pr-4 font-medium">Cerrados</th>
+              <th class="py-2 pr-4 font-medium">Respuesta</th>
+              <th class="py-2 font-medium">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {porAsesor.map((f) => (
+              <tr class="border-b border-[var(--line)]">
+                <td class="py-2.5 pr-4">
+                  <a class="underline underline-offset-4" href={`/panel/tablero/?asesor=${f.asesor.id}`}>
+                    {f.asesor.nombre}
+                  </a>
+                  {!f.asesor.activo && <span class="ml-2 text-[0.8rem] text-[var(--text-mute)]">inactivo</span>}
+                </td>
+                <td class="py-2.5 pr-4">{f.abiertos}</td>
+                <td class={`py-2.5 pr-4 ${f.sinAtender > 0 ? 'font-semibold text-[var(--color-gold-600)]' : ''}`}>
+                  {f.sinAtender}
+                </td>
+                <td class="py-2.5 pr-4">{f.cerrados}</td>
+                <td class="py-2.5 pr-4">{enTiempo(f.mediana)}</td>
+                <td class="py-2.5">{f.total}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p class="mt-2 text-[0.82rem] text-[var(--text-mute)]">
+        «Respuesta» es la mediana hasta el primer contacto, no el promedio: un caso
+        olvidado no debe ensuciar el número de todo el equipo.
+      </p>
+    </section>
+  )}
+
+  <section class="container-x mt-10 pb-24">
+    <h2 class="text-[1.15rem] font-semibold">
+      {etapaFiltro ? ETAPA_NOMBRE[etapaFiltro] : 'Leads abiertos'}
+      <span class="ml-2 font-normal text-[var(--text-mute)]">({visibles.length})</span>
+    </h2>
+    {visibles.length === 0 ? (
+      <p class="mt-4 rounded-xl border border-dashed border-[var(--line)] p-8 text-center text-[0.95rem] text-[var(--text-soft)]">
+        No hay leads en este filtro.
+      </p>
+    ) : (
+      <div class="mt-4 space-y-4">
+        {visibles.slice(0, 100).map((l) => (
+          <FichaLead
+            lead={l}
+            notas={notas.get(l.id) ?? []}
+            ir={ir}
+            asesores={paraReasignar}
+            duenno={l.asesor_id ? (nombrePor.get(l.asesor_id) ?? 'asesor borrado') : 'sin asesor'}
+          />
+        ))}
+      </div>
+    )}
+  </section>
+</Base>

@@ -11,26 +11,25 @@
  * permiso total y no puede pasar por el navegador.
  */
 import Base from '../../layouts/Base.astro';
-import { verificarBasic, RETO, env } from '../../lib/auth';
 import { listarAsesores, disponibleAhora, type Asesor } from '../../lib/ruleta';
+import { identificar, aLaPuerta } from '../../lib/guardia';
+import type { AsesorAcceso } from '../../lib/crm';
 
 export const prerender = false;
 
-const veredicto = verificarBasic(Astro.request.headers.get('authorization'));
-if (!veredicto.ok && veredicto.motivo === 'sin-clave') {
-  return new Response(
-    'El panel no tiene clave configurada. Define PANEL_CLAVE en las variables de entorno.',
-    { status: 503, headers: { 'Cache-Control': 'no-store' } }
-  );
-}
-if (!veredicto.ok) return new Response('Acceso restringido', { status: 401, headers: RETO });
+// Fase 5: entra el administrador, sea por la clave maestra del panel o por su
+// propia sesión. Un asesor de a pie no administra la ruleta que lo reparte.
+const quien = await identificar(Astro.request);
+if (quien.tipo === 'nadie') return aLaPuerta('/panel/asesores/');
+if (quien.tipo !== 'admin') return Astro.redirect('/panel/mis-leads/', 302);
 
 Astro.response.headers.set('Cache-Control', 'no-store');
 
-let asesores: Asesor[] = [];
+let asesores: AsesorAcceso[] = [];
 let error: string | null = null;
 try {
-  asesores = await listarAsesores();
+  // La consulta trae la fila entera, incluidos los campos de acceso de la Fase 5.
+  asesores = (await listarAsesores()) as AsesorAcceso[];
 } catch (err) {
   error = (err as Error).message;
 }
@@ -180,6 +179,7 @@ const estado = (a: Asesor) => {
               <tr>
                 <th class="p-3 font-semibold">Asesor</th>
                 <th class="p-3 font-semibold">AlterEstate</th>
+                <th class="p-3 font-semibold">Acceso al panel</th>
                 <th class="p-3 font-semibold">Zonas</th>
                 <th class="p-3 font-semibold">Horario</th>
                 <th class="p-3 font-semibold">Pausa</th>
@@ -207,6 +207,23 @@ const estado = (a: Asesor) => {
                       {a.ae_detalle && (
                         <p class="mt-1.5 max-w-[13rem] text-[0.72rem] text-[var(--text-mute)]">{a.ae_detalle}</p>
                       )}
+                    </td>
+                    {/* Fase 5 · acceso propio. Va aparte del botón "Guardar" a
+                        propósito: cambiar un correo de entrada o una clave no
+                        debería viajar mezclado con un cambio de horario. */}
+                    <td class="p-3">
+                      <input class="ac w-[13rem] rounded-lg border border-[var(--border-control)] bg-[var(--surface-raised)] px-2.5 py-1.5" data-k="correo" value={a.correo ?? ''} placeholder="correo de entrada" />
+                      <label class="mt-1.5 flex items-center gap-2 text-[0.78rem]">
+                        <input type="checkbox" class="ac" data-k="admin" checked={a.admin === true} /> Administrador
+                      </label>
+                      <p class="mt-1 text-[0.72rem] text-[var(--text-mute)]">
+                        {a.clave_hash ? 'Con clave' : 'Sin clave: no puede entrar'}
+                      </p>
+                      <button type="button" class="acceso mt-1.5 text-[0.75rem] underline underline-offset-2">Guardar acceso</button>
+                      <br />
+                      <button type="button" class="clave mt-1 text-[0.75rem] underline underline-offset-2">
+                        {a.clave_hash ? 'Cambiar clave' : 'Asignar clave'}
+                      </button>
                     </td>
                     <td class="p-3">
                       <input class="c w-[11rem] rounded-lg border border-[var(--border-control)] bg-[var(--surface-raised)] px-2.5 py-1.5" data-k="zonas" value={a.zonas.join(', ')} placeholder="todas" />
@@ -310,6 +327,36 @@ const estado = (a: Asesor) => {
               b.disabled = false;
               b.textContent = antes;
               alert('No se pudo guardar: ' + err.message);
+            }
+            return;
+          }
+
+          if (e.target.classList.contains('acceso')) {
+            const datos = {};
+            fila.querySelectorAll('.ac').forEach((el) => {
+              datos[el.dataset.k] = el.type === 'checkbox' ? el.checked : el.value;
+            });
+            try {
+              await pedir({ accion: 'acceso', id: fila.dataset.id, datos });
+              location.reload();
+            } catch (err) {
+              alert('No se pudo guardar el acceso: ' + err.message);
+            }
+            return;
+          }
+
+          if (e.target.classList.contains('clave')) {
+            const nombre = fila.querySelector('[data-k="nombre"]').value;
+            // prompt() y no un campo en la tabla: una clave escrita en un input
+            // visible se queda ahí, y la pantalla se usa con gente al lado.
+            const clave = prompt('Clave nueva para ' + nombre + ' (mínimo 8 caracteres):');
+            if (clave === null) return;
+            try {
+              await pedir({ accion: 'clave', id: fila.dataset.id, datos: { clave } });
+              alert('Clave asignada. Dígasela a ' + nombre + ' por un medio privado; aquí no se vuelve a ver.');
+              location.reload();
+            } catch (err) {
+              alert('No se pudo asignar la clave: ' + err.message);
             }
             return;
           }

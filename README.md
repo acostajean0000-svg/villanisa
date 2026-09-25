@@ -32,13 +32,15 @@ npm run build          # genera dist/
 | `WHATSAPP_PHONE_ID` | Phone number ID del número emisor | Solo servidor |
 | `WHATSAPP_PLANTILLA` | Nombre de la plantilla aprobada (4 parámetros, en este orden: nombre, teléfono, propiedad, minutos) | Solo servidor |
 | `WHATSAPP_IDIOMA` | Código de idioma de la plantilla (por defecto `es`) | Solo servidor |
+| `ENVIAR_A_ALTERESTATE` | `0` apaga la réplica de leads al CRM externo. Ausente o cualquier otro valor = encendido | Solo servidor |
+| `SESION_SECRETO` | Firma las sesiones del equipo. Si falta se usa `PANEL_CLAVE` | Solo servidor · sensible |
 
 En Vercel se configuran en *Project Settings → Environment Variables*.
 
 Sin `SUPABASE_URL` y `SUPABASE_SERVICE_KEY` el sitio sigue funcionando: los leads
 van directos a AlterEstate como antes, y `/panel/leads` lo avisa en pantalla.
-La tabla se crea con `supabase/01-leads.sql`, `supabase/02-atencion.sql` y
-`supabase/03-ruleta.sql`, en ese orden.
+La tabla se crea con `supabase/01-leads.sql`, `supabase/02-atencion.sql`,
+`supabase/03-ruleta.sql` y `supabase/04-crm.sql`, en ese orden.
 
 **El reparto de leads.** La ruleta propia (tabla `asesores`) decide a quién le
 toca cada lead del sitio y se administra en `/panel/asesores`. Si la tabla está
@@ -46,6 +48,23 @@ vacía o la base falla, el reparto vuelve solo al round robin de AlterEstate:
 instalar esto sin cargar asesores no cambia nada. El turno se elige y se marca
 dentro de la base, en `siguiente_asesor()`, porque hacerlo en dos pasos desde el
 sitio le daría el mismo asesor a dos leads simultáneos.
+
+**El CRM propio (Fase 5).** Cada asesor entra en `/panel/entrar` con su correo
+y su clave —que le asigna el administrador en `/panel/asesores`— y trabaja sus
+leads en `/panel/mis-leads`: etapas, notas e historial. El administrador ve todo
+en `/panel/tablero`. Un asesor solo puede tocar los leads que la ruleta le
+asignó; el filtro va en la consulta a la base, no en la plantilla.
+
+La clave del panel (`PANEL_CLAVE`) sigue siendo la llave maestra: entra como
+administrador aunque la tabla de asesores falle. Y el rango de administrador se
+lee de la base en cada petición, no de la cookie: desactivar a alguien lo deja
+fuera en su siguiente clic, no cuando venza su sesión.
+
+**Apagar AlterEstate.** Con el CRM propio en marcha, `ENVIAR_A_ALTERESTATE=0`
+deja de replicar los leads al CRM externo. El lead se sigue guardando en la base
+propia y la ruleta lo sigue asignando; solo deja de salir del sistema. Está
+encendido por defecto a propósito: una variable que desaparece por descuido no
+puede significar «deja de mandar los leads al CRM».
 
 Sin las variables de WhatsApp, la Fase 3 sigue siendo útil: el botón «Ya lo
 contacté», el tiempo de respuesta y los pendientes marcados funcionan igual;

@@ -1,0 +1,166 @@
+---
+/**
+ * Panel · Mis leads — Fase 5.
+ *
+ * La pantalla de trabajo del asesor. Es la que convierte el sistema propio en
+ * algo usable: hasta ahora el reparto era nuestro pero la gestión seguía en
+ * AlterEstate.
+ *
+ * El filtro por asesor se hace en la consulta a la base (ver leadsDeAsesor).
+ * Aquí no se filtra nada a mano: un error de esta plantilla no puede terminar
+ * enseñándole a un asesor los contactos de otro.
+ */
+import Base from '../../layouts/Base.astro';
+import FichaLead from '../../components/FichaLead.astro';
+import { identificar, aLaPuerta } from '../../lib/guardia';
+import {
+  ETAPAS,
+  ETAPA_NOMBRE,
+  ETAPAS_CERRADAS,
+  embudo,
+  esEtapa,
+  leadsDeAsesor,
+  notasDeVarios,
+  type Etapa,
+  type LeadCRM,
+  type Nota,
+} from '../../lib/crm';
+
+export const prerender = false;
+
+const quien = await identificar(Astro.request);
+if (quien.tipo === 'nadie') return aLaPuerta('/panel/mis-leads/');
+
+// El administrador sin ficha de asesor no tiene "sus" leads: su sitio es el tablero.
+if (quien.tipo === 'admin' && !quien.asesor) return Astro.redirect('/panel/tablero/', 302);
+
+const yo = quien.asesor!;
+Astro.response.headers.set('Cache-Control', 'no-store');
+
+const filtro = Astro.url.searchParams.get('etapa');
+const etapaFiltro: Etapa | null = esEtapa(filtro) ? filtro : null;
+const verCerrados = Astro.url.searchParams.get('cerrados') === '1';
+
+let leads: LeadCRM[] = [];
+let notas = new Map<string, Nota[]>();
+let error: string | null = null;
+
+try {
+  leads = await leadsDeAsesor(yo.id, 300);
+  notas = await notasDeVarios(leads.map((l) => l.id));
+} catch (err) {
+  error = (err as Error).message;
+}
+
+const cuenta = embudo(leads);
+const abiertos = leads.filter((l) => !ETAPAS_CERRADAS.includes((l.etapa ?? 'nuevo') as Etapa));
+
+const visibles = etapaFiltro
+  ? leads.filter((l) => (l.etapa ?? 'nuevo') === etapaFiltro)
+  : verCerrados
+    ? leads
+    : abiertos;
+
+const ir = `/panel/mis-leads/${etapaFiltro ? `?etapa=${etapaFiltro}` : verCerrados ? '?cerrados=1' : ''}`;
+
+const AVISO: Record<string, string> = {
+  etapa: 'Etapa actualizada.',
+  nota: 'Nota guardada.',
+  asignado: 'Lead reasignado.',
+};
+const PROBLEMA: Record<string, string> = {
+  permiso: 'Ese lead no está asignado a usted.',
+  etapa: 'Esa etapa no existe.',
+  nota: 'La nota estaba vacía.',
+  servidor: 'No se pudo guardar. Intente de nuevo.',
+  lead: 'No se reconoció el lead.',
+};
+const ok = AVISO[Astro.url.searchParams.get('ok') ?? ''] ?? null;
+const problema = PROBLEMA[Astro.url.searchParams.get('e') ?? ''] ?? null;
+---
+
+<Base title="Mis leads · Villanisa" description="Contactos asignados." noindex={true}>
+  <section class="container-x pt-12">
+    <div class="flex flex-wrap items-baseline justify-between gap-3">
+      <div>
+        <p class="eyebrow">Equipo</p>
+        <h1 class="mt-3 text-[clamp(1.7rem,4vw,2.5rem)] leading-tight">Mis leads</h1>
+        <p class="mt-2 text-[0.95rem] text-[var(--text-soft)]">{yo.nombre}</p>
+      </div>
+      <p class="text-[0.9rem]">
+        {quien.tipo === 'admin' && (
+          <>
+            <a class="underline underline-offset-4" href="/panel/tablero/">Tablero →</a>
+            <span class="mx-2 text-[var(--text-mute)]">·</span>
+          </>
+        )}
+        <a class="underline underline-offset-4" href="/api/entrar?salir=1">Salir</a>
+      </p>
+    </div>
+  </section>
+
+  {ok && (
+    <section class="container-x mt-6">
+      <p class="rounded-lg border border-[var(--line)] bg-[#f2f7f2] px-4 py-3 text-[0.9rem]">{ok}</p>
+    </section>
+  )}
+  {problema && (
+    <section class="container-x mt-6">
+      <p role="alert" class="rounded-lg border border-[var(--color-gold-600)] bg-[#fdf3f3] px-4 py-3 text-[0.9rem]">
+        {problema}
+      </p>
+    </section>
+  )}
+
+  {error && (
+    <section class="container-x mt-8">
+      <div class="rounded-xl border border-[var(--color-gold-600)] bg-[#fdf3f3] p-5 text-[0.95rem]">
+        <p class="font-semibold">No se pudieron leer sus leads.</p>
+        <p class="mt-2 text-[var(--text-soft)]">{error}</p>
+      </div>
+    </section>
+  )}
+
+  <!-- Embudo: cada etapa es un filtro. Es la navegación natural de esta
+       pantalla y evita tener que construir una barra de filtros aparte. -->
+  <section class="container-x mt-8">
+    <div class="flex flex-wrap gap-2">
+      <a
+        href="/panel/mis-leads/"
+        class={`rounded-full border px-4 py-1.5 text-[0.85rem] ${!etapaFiltro && !verCerrados ? 'border-[var(--color-brand-600)] bg-[var(--color-brand-50)]' : 'border-[var(--line)]'}`}
+      >
+        Abiertos ({abiertos.length})
+      </a>
+      {ETAPAS.map((e) => (
+        <a
+          href={`/panel/mis-leads/?etapa=${e}`}
+          class={`rounded-full border px-4 py-1.5 text-[0.85rem] ${etapaFiltro === e ? 'border-[var(--color-brand-600)] bg-[var(--color-brand-50)]' : 'border-[var(--line)]'}`}
+        >
+          {ETAPA_NOMBRE[e]} ({cuenta[e]})
+        </a>
+      ))}
+      <a
+        href="/panel/mis-leads/?cerrados=1"
+        class={`rounded-full border px-4 py-1.5 text-[0.85rem] ${verCerrados ? 'border-[var(--color-brand-600)] bg-[var(--color-brand-50)]' : 'border-[var(--line)]'}`}
+      >
+        Todos ({leads.length})
+      </a>
+    </div>
+  </section>
+
+  <section class="container-x mt-8 pb-24">
+    {visibles.length === 0 && !error ? (
+      <p class="rounded-xl border border-dashed border-[var(--line)] p-8 text-center text-[0.95rem] text-[var(--text-soft)]">
+        {leads.length === 0
+          ? 'Todavía no tiene leads asignados. Cuando la ruleta le toque el turno, aparecerán aquí.'
+          : 'No hay leads en este filtro.'}
+      </p>
+    ) : (
+      <div class="space-y-4">
+        {visibles.map((l) => (
+          <FichaLead lead={l} notas={notas.get(l.id) ?? []} ir={ir} />
+        ))}
+      </div>
+    )}
+  </section>
+</Base>

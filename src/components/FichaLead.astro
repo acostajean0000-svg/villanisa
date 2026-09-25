@@ -1,0 +1,198 @@
+---
+/**
+ * Ficha de trabajo de un lead — Fase 5.
+ *
+ * La usan la pantalla del asesor y el tablero del administrador. Está en un
+ * componente para que las dos muestren exactamente lo mismo: si un día la
+ * etapa se pinta distinta en cada sitio, el equipo deja de fiarse del panel.
+ *
+ * Todo son formularios nativos. Sin JS, esta ficha funciona igual.
+ */
+import { ETAPAS, ETAPA_NOMBRE, enlaceWhatsApp, type Etapa, type LeadCRM, type Nota } from '../lib/crm';
+
+interface Props {
+  lead: LeadCRM;
+  notas: Nota[];
+  ir: string;
+  /** Lista para reasignar. Vacía en la vista del asesor: reasignar es del administrador. */
+  asesores?: Array<{ id: string; nombre: string }>;
+  /** Nombre del asesor dueño, para el tablero. */
+  duenno?: string | null;
+}
+
+const { lead, notas, ir, asesores = [], duenno = null } = Astro.props;
+
+const etapa = (lead.etapa ?? 'nuevo') as Etapa;
+
+const COLOR: Record<Etapa, string> = {
+  nuevo: 'bg-[var(--color-brand-50)] text-[var(--color-brand-700)]',
+  contactado: 'bg-[#eef6ee] text-[#26602c]',
+  visita: 'bg-[#eaf1fb] text-[#1c4a86]',
+  negociacion: 'bg-[#fdf6e6] text-[#7a5a10]',
+  cerrado: 'bg-[#e8f4ea] text-[#1d5b2a]',
+  perdido: 'bg-[#f3f3f4] text-[#5b5b60]',
+};
+
+const fecha = (iso: string) =>
+  new Date(iso).toLocaleString('es-DO', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+const espera = Math.round((Date.now() - new Date(lead.creado_en).getTime()) / 60_000);
+const enTiempo = (min: number) =>
+  min < 60 ? `${min} min` : min < 1440 ? `${Math.floor(min / 60)} h` : `${Math.floor(min / 1440)} d`;
+
+const wa = enlaceWhatsApp(
+  lead.telefono,
+  `Hola ${lead.nombre?.split(' ')[0] ?? ''}, le escribo de Villanisa Inmobiliaria por su consulta${
+    lead.propiedad_nombre ? ` sobre ${lead.propiedad_nombre}` : ''
+  }.`
+);
+---
+
+<article
+  id={`lead-${lead.id}`}
+  class="rounded-xl border border-[var(--line)] bg-white p-5 scroll-mt-24"
+>
+  <header class="flex flex-wrap items-start justify-between gap-3">
+    <div>
+      <h3 class="text-[1.05rem] font-semibold">{lead.nombre || 'Sin nombre'}</h3>
+      <p class="mt-1 text-[0.85rem] text-[var(--text-mute)]">
+        {fecha(lead.creado_en)}
+        {!lead.atendido_en && <span class="ml-2">· esperando {enTiempo(espera)}</span>}
+        {duenno && <span class="ml-2">· {duenno}</span>}
+      </p>
+    </div>
+    <span class={`rounded-full px-3 py-1 text-[0.78rem] font-medium ${COLOR[etapa]}`}>
+      {ETAPA_NOMBRE[etapa]}
+    </span>
+  </header>
+
+  <dl class="mt-4 grid gap-x-6 gap-y-2 text-[0.9rem] sm:grid-cols-2">
+    {lead.telefono && (
+      <div>
+        <dt class="text-[var(--text-mute)]">Teléfono</dt>
+        <dd>
+          <a class="underline underline-offset-4" href={`tel:${lead.telefono}`}>{lead.telefono}</a>
+          {wa && (
+            <a class="ml-3 underline underline-offset-4" href={wa} target="_blank" rel="noopener">
+              WhatsApp
+            </a>
+          )}
+        </dd>
+      </div>
+    )}
+    {lead.email && (
+      <div>
+        <dt class="text-[var(--text-mute)]">Correo</dt>
+        <dd><a class="underline underline-offset-4" href={`mailto:${lead.email}`}>{lead.email}</a></dd>
+      </div>
+    )}
+    {lead.propiedad_nombre && (
+      <div class="sm:col-span-2">
+        <dt class="text-[var(--text-mute)]">Propiedad</dt>
+        <dd>{lead.propiedad_nombre}</dd>
+      </div>
+    )}
+    {lead.mensaje && (
+      <div class="sm:col-span-2">
+        <dt class="text-[var(--text-mute)]">Mensaje</dt>
+        <dd class="whitespace-pre-line">{lead.mensaje}</dd>
+      </div>
+    )}
+    {lead.motivo_perdida && (
+      <div class="sm:col-span-2">
+        <dt class="text-[var(--text-mute)]">Motivo de pérdida</dt>
+        <dd>{lead.motivo_perdida}</dd>
+      </div>
+    )}
+  </dl>
+
+  <!-- Cambio de etapa. El desplegable y la nota van en el mismo envío porque
+       en la práctica se hacen juntos: se llama, se anota y se mueve. -->
+  <form method="post" action="/api/trabajo" class="mt-5 border-t border-[var(--line)] pt-4">
+    <input type="hidden" name="accion" value="etapa" />
+    <input type="hidden" name="lead" value={lead.id} />
+    <input type="hidden" name="ir" value={ir} />
+
+    <div class="flex flex-wrap items-end gap-3">
+      <label class="block">
+        <span class="text-[0.8rem] text-[var(--text-mute)]">Etapa</span>
+        <select
+          name="etapa"
+          class="mt-1 rounded-lg border border-[var(--line)] px-3 py-2 text-[0.95rem]"
+        >
+          {ETAPAS.map((e) => (
+            <option value={e} selected={e === etapa}>{ETAPA_NOMBRE[e]}</option>
+          ))}
+        </select>
+      </label>
+
+      <label class="block min-w-[12rem] flex-1">
+        <span class="text-[0.8rem] text-[var(--text-mute)]">Nota (opcional)</span>
+        <input
+          type="text"
+          name="nota"
+          maxlength="4000"
+          placeholder="Qué pasó en esta gestión"
+          class="mt-1 w-full rounded-lg border border-[var(--line)] px-3 py-2 text-[0.95rem]"
+        />
+      </label>
+
+      <button
+        type="submit"
+        class="rounded-lg bg-[var(--color-brand-600)] px-4 py-2.5 text-[0.95rem] font-medium text-white"
+      >
+        Guardar
+      </button>
+    </div>
+
+    <label class="mt-3 block">
+      <span class="text-[0.8rem] text-[var(--text-mute)]">
+        Motivo, si lo marca como perdido
+      </span>
+      <input
+        type="text"
+        name="motivo"
+        maxlength="300"
+        class="mt-1 w-full rounded-lg border border-[var(--line)] px-3 py-2 text-[0.9rem]"
+      />
+    </label>
+  </form>
+
+  {asesores.length > 0 && (
+    <form method="post" action="/api/trabajo" class="mt-3 flex flex-wrap items-end gap-3">
+      <input type="hidden" name="accion" value="asignar" />
+      <input type="hidden" name="lead" value={lead.id} />
+      <input type="hidden" name="ir" value={ir} />
+      <label class="block">
+        <span class="text-[0.8rem] text-[var(--text-mute)]">Pasar a</span>
+        <select name="asesor" class="mt-1 rounded-lg border border-[var(--line)] px-3 py-2 text-[0.95rem]">
+          {asesores.map((a) => (
+            <option value={a.id} selected={a.id === lead.asesor_id}>{a.nombre}</option>
+          ))}
+        </select>
+      </label>
+      <button type="submit" class="rounded-lg border border-[var(--line)] px-4 py-2.5 text-[0.95rem]">
+        Reasignar
+      </button>
+    </form>
+  )}
+
+  {notas.length > 0 && (
+    <div class="mt-4 border-t border-[var(--line)] pt-4">
+      <p class="text-[0.8rem] font-medium text-[var(--text-mute)]">Historial</p>
+      <ul class="mt-2 space-y-2 text-[0.9rem]">
+        {notas.slice(0, 8).map((n) => (
+          <li>
+            <span class="text-[var(--text-mute)]">{fecha(n.creado_en)} · {n.autor}</span>
+            <p class="whitespace-pre-line">{n.texto}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )}
+</article>

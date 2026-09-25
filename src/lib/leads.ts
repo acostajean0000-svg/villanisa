@@ -42,7 +42,7 @@ export interface LeadNuevo {
 export interface LeadGuardado extends LeadNuevo {
   id: string;
   creado_en: string;
-  crm_estado: 'pendiente' | 'enviado' | 'rechazado' | 'sin_clave';
+  crm_estado: 'pendiente' | 'enviado' | 'rechazado' | 'sin_clave' | 'apagado';
   crm_detalle: string | null;
   crm_enviado_en: string | null;
   // Fase 3

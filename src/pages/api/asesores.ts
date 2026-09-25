@@ -1,6 +1,8 @@
 import type { APIRoute } from 'astro';
 import { verificarBasic, RETO } from '../../lib/auth';
 import { guardarAsesor, crearAsesor, borrarAsesor, type CambioAsesor } from '../../lib/ruleta';
+import { guardarAcceso, guardarClave, asesorPorCorreo } from '../../lib/crm';
+import { hashearClave } from '../../lib/sesion';
 
 export const prerender = false;
 
@@ -109,6 +111,49 @@ export const POST: APIRoute = async ({ request }) => {
 
     if (accion === 'guardar') {
       await guardarAsesor(id, limpiar(datos));
+      return json({ ok: true });
+    }
+
+    /**
+     * Correo de acceso y rango de administrador.
+     *
+     * El correo se comprueba contra la tabla antes de escribir: la base tiene
+     * un índice único, pero su error llega como un 409 de PostgREST que en
+     * pantalla no dice nada. Mejor explicar de quién es el correo.
+     */
+    if (accion === 'acceso') {
+      const datosAcceso: { correo?: string | null; admin?: boolean } = {};
+      if ('correo' in datos) {
+        const v = String(datos.correo ?? '').trim().toLowerCase();
+        if (v && !/^[\w.+-]+@[\w.-]+\.[a-z]{2,}$/i.test(v)) {
+          return json({ ok: false, error: 'Ese correo no tiene forma de correo.' }, 400);
+        }
+        if (v) {
+          const otro = await asesorPorCorreo(v);
+          if (otro && otro.id !== id) {
+            return json({ ok: false, error: `Ese correo ya es de ${otro.nombre}.` }, 400);
+          }
+        }
+        datosAcceso.correo = v || null;
+      }
+      if ('admin' in datos) datosAcceso.admin = Boolean(datos.admin);
+      await guardarAcceso(id, datosAcceso);
+      return json({ ok: true });
+    }
+
+    /**
+     * Asignar clave.
+     *
+     * La clave llega en claro por HTTPS y se deriva aquí; nunca se guarda tal
+     * cual ni se devuelve. Ocho caracteres es poco para un banco pero mucho
+     * para un panel interno con freno de intentos, y una exigencia mayor
+     * termina en claves apuntadas en un papel.
+     */
+    if (accion === 'clave') {
+      const clave = String(datos.clave ?? '');
+      if (clave.length < 8) return json({ ok: false, error: 'La clave necesita al menos 8 caracteres.' }, 400);
+      if (clave.length > 200) return json({ ok: false, error: 'Esa clave es demasiado larga.' }, 400);
+      await guardarClave(id, await hashearClave(clave));
       return json({ ok: true });
     }
 

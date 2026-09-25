@@ -221,6 +221,26 @@ export const POST: APIRoute = async ({ request }) => {
         })
       : bad('No se pudo registrar el contacto', 502);
 
+  /**
+   * Interruptor de AlterEstate — Fase 5.
+   *
+   * Con el CRM propio funcionando, replicar a AlterEstate pasa a ser opcional.
+   * Se apaga poniendo ENVIAR_A_ALTERESTATE=0 en Vercel, sin tocar código: es
+   * una decisión de negocio y debe poder revertirse en un minuto, no en un
+   * despliegue.
+   *
+   * Encendido por defecto a propósito. Una variable ausente —porque se borró
+   * sin querer, porque el entorno de vista previa no la tiene— no puede
+   * significar "deja de mandar los leads al CRM".
+   */
+  const replicar = (env('ENVIAR_A_ALTERESTATE') ?? '1').trim().toLowerCase();
+  if (replicar === '0' || replicar === 'no' || replicar === 'false') {
+    // No se marca 'rechazado': no falló nada. El lead vive en la base propia,
+    // que a estas alturas es el sistema de verdad.
+    if (idPropio) await marcarCRM(idPropio, 'apagado', 'Replicación a AlterEstate apagada');
+    return responder(Boolean(idPropio), false);
+  }
+
   if (!apiKey) {
     console.warn('[lead] ALTERESTATE_API_KEY no configurada. Lead sin replicar al CRM.');
     if (idPropio) await marcarCRM(idPropio, 'sin_clave', 'ALTERESTATE_API_KEY no configurada');

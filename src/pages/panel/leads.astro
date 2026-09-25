@@ -50,7 +50,9 @@ const ahora = Date.now();
 const desde = (dias: number) =>
   leads.filter((l) => ahora - new Date(l.creado_en).getTime() < dias * 86_400_000).length;
 
-const pendientes = leads.filter((l) => l.crm_estado !== 'enviado');
+// 'apagado' no es un pendiente: es la réplica al CRM externo desactivada a
+// propósito. Contarlo como problema llenaría el panel de falsas alarmas.
+const pendientes = leads.filter((l) => l.crm_estado !== 'enviado' && l.crm_estado !== 'apagado');
 
 /* ---- Fase 3 · atención ---- */
 const UMBRAL = Number(env('ALERTA_MINUTOS') || 10) || 10;
@@ -81,6 +83,7 @@ const ETIQUETA: Record<LeadGuardado['crm_estado'], string> = {
   rechazado: 'No entró al CRM',
   pendiente: 'Sin confirmar',
   sin_clave: 'CRM sin configurar',
+  apagado: 'Réplica apagada',
 };
 ---
 
