@@ -2,9 +2,10 @@ import type { APIRoute } from 'astro';
 import { verificarBasic, RETO } from '../../lib/auth';
 import { identificar } from '../../lib/guardia';
 import { guardarAsesor, crearAsesor, borrarAsesor, type CambioAsesor } from '../../lib/ruleta';
-import { guardarAcceso, guardarClave, asesorPorCorreo } from '../../lib/crm';
+import { guardarAcceso, guardarClave, asesorPorCorreo, asesorPorId } from '../../lib/crm';
 import { hashearClave } from '../../lib/sesion';
 import { candidatos, importar } from '../../lib/importar';
+import { crearInvitacion, anularInvitacion } from '../../lib/invitacion';
 
 export const prerender = false;
 
@@ -187,6 +188,34 @@ export const POST: APIRoute = async ({ request }) => {
       if (clave.length < 8) return json({ ok: false, error: 'La clave necesita al menos 8 caracteres.' }, 400);
       if (clave.length > 200) return json({ ok: false, error: 'Esa clave es demasiado larga.' }, 400);
       await guardarClave(id, await hashearClave(clave));
+      return json({ ok: true });
+    }
+
+    /**
+     * Enlace de invitación.
+     *
+     * El origen sale de la petición, no de una variable: así el enlace apunta
+     * al mismo dominio por el que entró el administrador y funciona igual en
+     * una vista previa de Vercel que en producción.
+     */
+    if (accion === 'invitar') {
+      const a = await asesorPorId(id);
+      if (!a) return json({ ok: false, error: 'Ese asesor no existe.' }, 400);
+      if (!a.correo) {
+        return json(
+          { ok: false, error: 'Primero póngale un correo de entrada y guarde el acceso.' },
+          400
+        );
+      }
+      if (!a.activo) {
+        // Un enlace que no va a poder usar solo genera una consulta a soporte.
+        return json({ ok: false, error: 'Actívelo primero: un asesor inactivo no puede entrar.' }, 400);
+      }
+      return json({ ok: true, enlace: await crearInvitacion(id, new URL(request.url).origin) });
+    }
+
+    if (accion === 'anular-invitacion') {
+      await anularInvitacion(id);
       return json({ ok: true });
     }
 

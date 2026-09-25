@@ -55,6 +55,8 @@ export interface AsesorAcceso extends Asesor {
   clave_hash: string | null;
   admin: boolean;
   ultimo_acceso: string | null;
+  /** Fase 5b: hasta cuándo vale la invitación pendiente, si la hay. */
+  invitacion_hasta?: string | null;
 }
 
 /* ------------------------------------------------------------------ *

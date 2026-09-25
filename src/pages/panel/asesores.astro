@@ -221,8 +221,17 @@ const estado = (a: Asesor) => {
                       </p>
                       <button type="button" class="acceso mt-1.5 text-[0.75rem] underline underline-offset-2">Guardar acceso</button>
                       <br />
-                      <button type="button" class="clave mt-1 text-[0.75rem] underline underline-offset-2">
-                        {a.clave_hash ? 'Cambiar clave' : 'Asignar clave'}
+                      <button type="button" class="invitar mt-1 text-[0.75rem] underline underline-offset-2">
+                        {a.clave_hash ? 'Reenviar invitación' : 'Invitar'}
+                      </button>
+                      {a.invitacion_hasta && new Date(a.invitacion_hasta).getTime() > Date.now() && (
+                        <p class="mt-1 text-[0.72rem] text-[var(--text-mute)]">
+                          Invitación pendiente hasta {new Date(a.invitacion_hasta).toLocaleDateString('es-DO')}
+                        </p>
+                      )}
+                      <br />
+                      <button type="button" class="clave mt-1 text-[0.75rem] text-[var(--text-mute)] underline underline-offset-2">
+                        Ponerle una clave yo
                       </button>
                     </td>
                     <td class="p-3">
@@ -366,6 +375,34 @@ const estado = (a: Asesor) => {
               location.reload();
             } catch (err) {
               alert('No se pudo guardar el acceso: ' + err.message);
+            }
+            return;
+          }
+
+          if (e.target.classList.contains('invitar')) {
+            const nombre = fila.querySelector('[data-k="nombre"]').value;
+            const b = e.target;
+            b.disabled = true;
+            try {
+              const r = await fetch('/api/asesores', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ accion: 'invitar', id: fila.dataset.id }),
+              });
+              const d = await r.json();
+              if (!d.ok) throw new Error(d.error || 'no se pudo invitar');
+              // Al portapapeles directamente: el enlace es largo y copiarlo a
+              // mano de un alert es justo donde se pierde un carácter.
+              try { await navigator.clipboard.writeText(d.enlace); } catch (_) {}
+              prompt(
+                'Enlace para ' + nombre + ' — copiado al portapapeles.\n\n' +
+                'Válido 7 días y se quema al usarse. Mándeselo por WhatsApp:',
+                d.enlace
+              );
+              location.reload();
+            } catch (err) {
+              b.disabled = false;
+              alert('No se pudo invitar: ' + err.message);
             }
             return;
           }

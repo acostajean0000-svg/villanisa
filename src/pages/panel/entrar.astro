@@ -29,6 +29,8 @@ const MENSAJE: Record<string, string> = {
   '4': 'Falta configurar el secreto de sesión en el servidor. Avise a administración.',
 };
 const error = e ? (MENSAJE[e] ?? MENSAJE['1']) : null;
+// Llega aquí quien acaba de estrenar clave por un enlace de invitación.
+const recienCreada = Astro.url.searchParams.get('nueva') === '1';
 ---
 
 <Base title="Entrar · Villanisa" description="Acceso del equipo comercial." noindex={true}>
@@ -39,6 +41,12 @@ const error = e ? (MENSAJE[e] ?? MENSAJE['1']) : null;
       <p class="mt-3 text-[0.95rem] text-[var(--text-soft)]">
         Use el correo con el que está dado de alta en la ruleta.
       </p>
+
+      {recienCreada && !error && (
+        <p class="mt-5 rounded-lg border border-[var(--line)] bg-[#f2f7f2] px-4 py-3 text-[0.9rem]">
+          Clave guardada. Entre con ella.
+        </p>
+      )}
 
       {error && (
         <p
@@ -85,8 +93,8 @@ const error = e ? (MENSAJE[e] ?? MENSAJE['1']) : null;
       </form>
 
       <p class="mt-6 text-[0.85rem] text-[var(--text-mute)]">
-        ¿No tiene clave todavía? Pídasela a administración: se asigna desde la
-        pantalla de asesores.
+        ¿No tiene clave todavía? Pídale a administración que le mande su enlace
+        de invitación.
       </p>
     </div>
   </section>

@@ -40,7 +40,8 @@ En Vercel se configuran en *Project Settings → Environment Variables*.
 Sin `SUPABASE_URL` y `SUPABASE_SERVICE_KEY` el sitio sigue funcionando: los leads
 van directos a AlterEstate como antes, y `/panel/leads` lo avisa en pantalla.
 La tabla se crea con `supabase/01-leads.sql`, `supabase/02-atencion.sql`,
-`supabase/03-ruleta.sql` y `supabase/04-crm.sql`, en ese orden.
+`supabase/03-ruleta.sql`, `supabase/04-crm.sql` y `supabase/05-invitaciones.sql`,
+en ese orden.
 
 **El reparto de leads.** La ruleta propia (tabla `asesores`) decide a quién le
 toca cada lead del sitio y se administra en `/panel/asesores`. Si la tabla está
@@ -54,6 +55,13 @@ y su clave —que le asigna el administrador en `/panel/asesores`— y trabaja s
 leads en `/panel/mis-leads`: etapas, notas e historial. El administrador ve todo
 en `/panel/tablero`. Un asesor solo puede tocar los leads que la ruleta le
 asignó; el filtro va en la consulta a la base, no en la plantilla.
+
+**Cómo estrena clave un asesor.** El administrador pulsa «Invitar» en
+`/panel/asesores` y le manda el enlace que sale. El asesor lo abre, escribe la
+clave que quiera y el enlace se quema; caduca a los 7 días y pedir uno nuevo
+invalida el anterior. Así la clave no viaja por WhatsApp ni la conoce nadie más.
+En la base solo se guarda el hash del token, igual que con las claves. El botón
+«Ponerle una clave yo» sigue ahí para el asesor que no se maneje con enlaces.
 
 La clave del panel (`PANEL_CLAVE`) sigue siendo la llave maestra: entra como
 administrador aunque la tabla de asesores falle. Y el rango de administrador se
