@@ -149,7 +149,17 @@ export async function guardarAsesor(id: string, cambios: CambioAsesor): Promise<
   if (!res.ok) throw new Error(`El almacén respondió ${res.status}: ${(await res.text()).slice(0, 200)}`);
 }
 
-export async function crearAsesor(datos: CambioAsesor & { nombre: string }): Promise<void> {
+/**
+ * Crea un asesor.
+ *
+ * Acepta `correo` aunque no sea parte de `CambioAsesor`: ese campo pertenece al
+ * acceso al panel (Fase 5) y no a la rotación, pero al importar desde
+ * AlterEstate viene en el mismo paquete y separarlo en dos escrituras dejaría
+ * la puerta abierta a asesores creados a medias.
+ */
+export async function crearAsesor(
+  datos: CambioAsesor & { nombre: string; correo?: string | null }
+): Promise<void> {
   const cred = credenciales();
   if (!cred) throw new Error('La ruleta no está configurada.');
   const res = await fetch(`${cred.url}/rest/v1/asesores`, {

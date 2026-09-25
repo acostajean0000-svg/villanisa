@@ -1,5 +1,6 @@
 import type { APIRoute } from 'astro';
 import { verificarBasic, RETO, env } from '../../lib/auth';
+import { identificar } from '../../lib/guardia';
 import { marcarAtendido } from '../../lib/leads';
 
 export const prerender = false;
@@ -20,11 +21,20 @@ const json = (data: unknown, status = 200) =>
  * dejaría de significar nada.
  */
 export const POST: APIRoute = async ({ request }) => {
+  // Fase 5: vale la clave maestra o cualquier sesión del equipo. Un asesor
+  // marcando su propio lead como atendido es precisamente el caso de uso.
   const veredicto = verificarBasic(request.headers.get('authorization'));
   if (!veredicto.ok && veredicto.motivo === 'sin-clave') {
     return json({ ok: false, error: 'El panel no tiene clave configurada.' }, 503);
   }
-  if (!veredicto.ok) return new Response('Acceso restringido', { status: 401, headers: RETO });
+  let quienSoy = env('PANEL_USUARIO') || 'panel';
+  if (!veredicto.ok) {
+    const quien = await identificar(request);
+    if (quien.tipo === 'nadie') {
+      return new Response('Acceso restringido', { status: 401, headers: RETO });
+    }
+    quienSoy = quien.nombre;
+  }
 
   let id = '';
   try {
@@ -40,7 +50,9 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   try {
-    const cambiadas = await marcarAtendido(id, env('PANEL_USUARIO') || 'panel');
+    // Queda quién atendió de verdad, no un genérico "panel": con varios
+    // asesores usando la misma pantalla, el nombre es media métrica.
+    const cambiadas = await marcarAtendido(id, quienSoy);
     return json({ ok: true, yaEstaba: cambiadas === 0 });
   } catch (err) {
     return json({ ok: false, error: (err as Error).message }, 503);

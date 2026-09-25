@@ -10,7 +10,8 @@
  * eso aquí no hay ninguna llamada desde el navegador, al revés que en /panel.
  */
 import Base from '../../layouts/Base.astro';
-import { verificarBasic, RETO, env } from '../../lib/auth';
+import { env } from '../../lib/auth';
+import { identificar, aLaPuerta } from '../../lib/guardia';
 import {
   listarLeads,
   almacenConfigurado,
@@ -21,15 +22,11 @@ import {
 
 export const prerender = false;
 
-const veredicto = verificarBasic(Astro.request.headers.get('authorization'));
-
-if (!veredicto.ok && veredicto.motivo === 'sin-clave') {
-  return new Response(
-    'El panel no tiene clave configurada. Define PANEL_CLAVE en las variables de entorno.',
-    { status: 503, headers: { 'Cache-Control': 'no-store' } }
-  );
-}
-if (!veredicto.ok) return new Response('Acceso restringido', { status: 401, headers: RETO });
+// Fase 5: la clave maestra sigue valiendo, y también la sesión propia del
+// administrador. Un asesor de a pie no ve la entrada de leads de todos.
+const quien = await identificar(Astro.request);
+if (quien.tipo === 'nadie') return aLaPuerta('/panel/leads/');
+if (quien.tipo !== 'admin') return Astro.redirect('/panel/mis-leads/', 302);
 
 Astro.response.headers.set('Cache-Control', 'no-store');
 

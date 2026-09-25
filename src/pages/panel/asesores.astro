@@ -265,6 +265,23 @@ const estado = (a: Asesor) => {
         </div>
       </section>
 
+      {/* Fase 5 · traer el equipo desde AlterEstate en vez de teclearlo. */}
+      <section class="container-x mb-10">
+        <div class="rounded-xl border border-[var(--border)] p-6">
+          <div class="flex flex-wrap items-baseline justify-between gap-3">
+            <h2 class="text-[1.2rem]">Traer asesores de AlterEstate</h2>
+            <button id="i-buscar" type="button" class="btn">Ver la lista</button>
+          </div>
+          <p class="mt-3 max-w-2xl text-[0.85rem] leading-relaxed text-[var(--text-mute)]">
+            Lee los usuarios del CRM y muestra los que todavía no están aquí. Entran
+            <strong>inactivos</strong> a propósito: si entraran activos, la ruleta
+            empezaría a repartir leads a cuentas viejas en el mismo minuto. Marque a
+            los que trabajan hoy, tráigalos, y actíve­los en la tabla de arriba.
+          </p>
+          <div id="i-zona" class="mt-5"></div>
+        </div>
+      </section>
+
       <section class="container-x mb-20">
         <div class="rounded-xl border border-[var(--border)] p-6">
           <h2 class="text-[1.2rem]">Añadir asesor</h2>
@@ -298,6 +315,14 @@ const estado = (a: Asesor) => {
       </section>
 
       <script is:inline>
+        // Los nombres vienen de AlterEstate, que es un sistema ajeno: aunque
+        // esta pantalla sea interna, nada de lo que llega de fuera se inyecta
+        // como HTML sin escapar.
+        const esc = (v) =>
+          String(v ?? '').replace(/[&<>"']/g, (c) =>
+            ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]
+          );
+
         const pedir = async (cuerpo) => {
           const r = await fetch('/api/asesores', {
             method: 'POST',
@@ -371,6 +396,108 @@ const estado = (a: Asesor) => {
               location.reload();
             } catch (err) {
               alert('No se pudo quitar: ' + err.message);
+            }
+            return;
+          }
+
+          // ---- Traer de AlterEstate -------------------------------------
+          if (e.target.id === 'i-buscar') {
+            const b = e.target;
+            const zona = document.getElementById('i-zona');
+            b.disabled = true;
+            b.textContent = 'Consultando el CRM…';
+            try {
+              const r = await fetch('/api/asesores', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ accion: 'candidatos' }),
+              });
+              const d = await r.json();
+              if (!d.ok) throw new Error(d.error || 'no se pudo consultar');
+              const nuevos = d.lista.filter((c) => !c.existe && !c.problema);
+              const resto = d.lista.filter((c) => c.existe || c.problema);
+
+              if (!nuevos.length) {
+                zona.innerHTML =
+                  '<p class="text-[0.9rem]">No hay nadie nuevo que traer: los ' +
+                  d.lista.length +
+                  ' usuarios del CRM ya están en la ruleta o no tienen correo ni UID.</p>';
+              } else {
+                // Nada marcado de entrada: traer 54 cuentas de golpe es
+                // justo lo que no queremos que pase por inercia.
+                zona.innerHTML =
+                  '<p class="text-[0.9rem]">' + nuevos.length + ' por traer. Marque a los que trabajan hoy:</p>' +
+                  '<ul class="mt-3 grid gap-2 sm:grid-cols-2">' +
+                  nuevos
+                    .map(
+                      (c) =>
+                        '<li><label class="flex items-start gap-2 text-[0.88rem]">' +
+                        '<input type="checkbox" class="i-c" value="' + esc(c.ref) + '">' +
+                        '<span><strong>' + esc(c.nombre) + '</strong><br>' +
+                        '<span class="text-[0.78rem] text-[var(--text-mute)]">' +
+                        esc(c.correo || c.uid) + (c.telefono ? ' · ' + esc(c.telefono) : '') +
+                        '</span></span></label></li>'
+                    )
+                    .join('') +
+                  '</ul>' +
+                  '<div class="mt-4 flex flex-wrap items-center gap-3">' +
+                  '<button id="i-todos" type="button" class="btn">Marcar todos</button>' +
+                  '<button id="i-traer" type="button" class="btn btn-primary">Traer los marcados</button>' +
+                  '</div>';
+              }
+
+              if (resto.length) {
+                zona.innerHTML +=
+                  '<details class="mt-5"><summary class="cursor-pointer text-[0.85rem] text-[var(--text-mute)]">' +
+                  resto.length + ' que no se traen</summary><ul class="mt-2 space-y-1 text-[0.82rem] text-[var(--text-mute)]">' +
+                  resto
+                    .map(
+                      (c) =>
+                        '<li>' + esc(c.nombre || '(sin nombre)') + ' — ' +
+                        (c.existe ? 'ya está como ' + esc(c.existeComo) : esc(c.problema)) +
+                        '</li>'
+                    )
+                    .join('') +
+                  '</ul></details>';
+              }
+              b.textContent = 'Volver a consultar';
+            } catch (err) {
+              zona.innerHTML = '<p class="text-[0.9rem]">No se pudo leer AlterEstate: ' + esc(err.message) + '</p>';
+              b.textContent = 'Intentar de nuevo';
+            }
+            b.disabled = false;
+            return;
+          }
+
+          if (e.target.id === 'i-todos') {
+            document.querySelectorAll('.i-c').forEach((c) => { c.checked = true; });
+            return;
+          }
+
+          if (e.target.id === 'i-traer') {
+            const refs = [...document.querySelectorAll('.i-c:checked')].map((c) => c.value);
+            if (!refs.length) { alert('No marcó a nadie.'); return; }
+            const b = e.target;
+            b.disabled = true;
+            b.textContent = 'Trayendo…';
+            try {
+              const r = await fetch('/api/asesores', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ accion: 'importar', datos: { refs } }),
+              });
+              const d = await r.json();
+              if (!d.ok) throw new Error(d.error || 'no se pudo importar');
+              alert(
+                d.creados.length + ' asesor(es) traídos, inactivos.\n\n' +
+                (d.omitidos.length ? 'Omitidos: ' + d.omitidos.map((o) => o.nombre + ' (' + o.motivo + ')').join(', ') + '\n\n' : '') +
+                'Actíve­los en la tabla de arriba y asígneles clave.'
+              );
+              location.reload();
+            } catch (err) {
+              b.disabled = false;
+              b.textContent = 'Traer los marcados';
+              alert('No se pudo traer: ' + err.message);
             }
             return;
           }

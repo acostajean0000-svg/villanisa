@@ -1,8 +1,10 @@
 import type { APIRoute } from 'astro';
 import { verificarBasic, RETO } from '../../lib/auth';
+import { identificar } from '../../lib/guardia';
 import { guardarAsesor, crearAsesor, borrarAsesor, type CambioAsesor } from '../../lib/ruleta';
 import { guardarAcceso, guardarClave, asesorPorCorreo } from '../../lib/crm';
 import { hashearClave } from '../../lib/sesion';
+import { candidatos, importar } from '../../lib/importar';
 
 export const prerender = false;
 
@@ -84,11 +86,25 @@ function limpiar(bruto: Record<string, unknown>): CambioAsesor {
 }
 
 export const POST: APIRoute = async ({ request }) => {
+  /**
+   * Administra la ruleta: entra el administrador, por la clave maestra del
+   * panel o por su propia sesión (Fase 5). Antes solo valía la clave maestra,
+   * lo que dejaba a un administrador con sesión propia sin poder pulsar los
+   * botones de su propia pantalla.
+   */
   const veredicto = verificarBasic(request.headers.get('authorization'));
   if (!veredicto.ok && veredicto.motivo === 'sin-clave') {
     return json({ ok: false, error: 'El panel no tiene clave configurada.' }, 503);
   }
-  if (!veredicto.ok) return new Response('Acceso restringido', { status: 401, headers: RETO });
+  if (!veredicto.ok) {
+    const quien = await identificar(request);
+    if (quien.tipo !== 'admin') {
+      // Sin cookie válida se pide la clave maestra; con cookie de asesor, no.
+      return quien.tipo === 'nadie'
+        ? new Response('Acceso restringido', { status: 401, headers: RETO })
+        : json({ ok: false, error: 'Solo administración puede cambiar la ruleta.' }, 403);
+    }
+  }
 
   let cuerpo: { accion?: string; id?: string; datos?: Record<string, unknown> };
   try {
@@ -105,6 +121,23 @@ export const POST: APIRoute = async ({ request }) => {
       if (!c.nombre) return json({ ok: false, error: 'El nombre es obligatorio.' }, 400);
       await crearAsesor({ ...c, nombre: c.nombre });
       return json({ ok: true });
+    }
+
+    /**
+     * Traer usuarios de AlterEstate.
+     *
+     * Van antes de la comprobación del id porque no operan sobre un asesor
+     * existente. `candidatos` no escribe nada: es la pantalla previa donde el
+     * administrador elige a quién trae.
+     */
+    if (accion === 'candidatos') {
+      return json({ ok: true, lista: await candidatos() });
+    }
+
+    if (accion === 'importar') {
+      const refs = Array.isArray(datos.refs) ? datos.refs.map((r) => String(r)).slice(0, 200) : [];
+      if (!refs.length) return json({ ok: false, error: 'No marcó a ningún asesor.' }, 400);
+      return json({ ok: true, ...(await importar(refs)) });
     }
 
     if (!id || !ES_UUID.test(id)) return json({ ok: false, error: 'Identificador inválido' }, 400);
