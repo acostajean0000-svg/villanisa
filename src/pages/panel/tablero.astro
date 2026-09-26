@@ -9,7 +9,7 @@
 import Base from '../../layouts/Base.astro';
 import FichaLead from '../../components/FichaLead.astro';
 import { identificar, aLaPuerta } from '../../lib/guardia';
-import { listarAsesores, type Asesor } from '../../lib/ruleta';
+import { listarAsesores } from '../../lib/ruleta';
 import { medianaRespuesta } from '../../lib/leads';
 import {
   ETAPAS,
@@ -17,8 +17,11 @@ import {
   ETAPAS_CERRADAS,
   embudo,
   esEtapa,
+  equipoDe,
+  leadsDeEquipo,
   notasDeVarios,
   todosLosLeads,
+  type AsesorAcceso,
   type Etapa,
   type LeadCRM,
   type Nota,
@@ -28,7 +31,9 @@ export const prerender = false;
 
 const quien = await identificar(Astro.request);
 if (quien.tipo === 'nadie') return aLaPuerta('/panel/tablero/');
-if (quien.tipo !== 'admin') return Astro.redirect('/panel/mis-leads/', 302);
+// Fase 6: el gerente también tiene tablero, pero solo de su equipo.
+if (quien.tipo === 'asesor') return Astro.redirect('/panel/mis-leads/', 302);
+const soloMiEquipo = quien.tipo === 'gerente';
 
 Astro.response.headers.set('Cache-Control', 'no-store');
 
@@ -37,12 +42,22 @@ const etapaFiltro: Etapa | null = esEtapa(filtroEtapa) ? filtroEtapa : null;
 const filtroAsesor = Astro.url.searchParams.get('asesor');
 
 let leads: LeadCRM[] = [];
-let asesores: Asesor[] = [];
+let asesores: AsesorAcceso[] = [];
 let notas = new Map<string, Nota[]>();
 let error: string | null = null;
 
 try {
-  [leads, asesores] = await Promise.all([todosLosLeads(500), listarAsesores()]);
+  if (soloMiEquipo) {
+    // El recorte se hace en la consulta, no filtrando después: un error en esta
+    // plantilla no puede terminar enseñándole a un gerente el equipo de otro.
+    asesores = await equipoDe(quien.asesor.id);
+    leads = await leadsDeEquipo(asesores.map((a) => a.id), 500);
+  } else {
+    [leads, asesores] = await Promise.all([
+      todosLosLeads(500),
+      listarAsesores() as Promise<AsesorAcceso[]>,
+    ]);
+  }
 } catch (err) {
   error = (err as Error).message;
 }
@@ -52,7 +67,7 @@ const cuenta = embudo(leads);
 const abierto = (l: LeadCRM) => !ETAPAS_CERRADAS.includes((l.etapa ?? 'nuevo') as Etapa);
 
 /** Una fila por asesor: carga abierta, cerrados y cuánto tarda en contestar. */
-const porAsesor = asesores.map((a) => {
+const porAsesor = asesores.filter((a) => a.rol !== 'gerente').map((a) => {
   const suyos = leads.filter((l) => l.asesor_id === a.id);
   return {
     asesor: a,
@@ -66,7 +81,9 @@ const porAsesor = asesores.map((a) => {
 
 // Los que la ruleta nunca tocó: llegaron antes de la Fase 4 o entraron cuando
 // no había nadie disponible. Conviene verlos: son los que nadie está mirando.
-const huerfanos = leads.filter((l) => !l.asesor_id);
+// Solo administración: un gerente nunca ve leads sin dueño, porque su vista
+// se construye a partir de los asesores de su equipo.
+const huerfanos = soloMiEquipo ? [] : leads.filter((l) => !l.asesor_id);
 
 let visibles = leads;
 if (etapaFiltro) visibles = visibles.filter((l) => (l.etapa ?? 'nuevo') === etapaFiltro);
@@ -85,7 +102,10 @@ if (!error) {
 }
 
 const ir = `/panel/tablero/${Astro.url.search}`;
-const paraReasignar = asesores.filter((a) => a.activo).map((a) => ({ id: a.id, nombre: a.nombre }));
+// Para el gerente esta lista ya ES su equipo; para administración, todos.
+const paraReasignar = asesores
+  .filter((a) => a.activo && a.rol !== 'gerente')
+  .map((a) => ({ id: a.id, nombre: a.nombre }));
 
 const enTiempo = (m: number | null) => (m === null ? '—' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h`);
 ---
@@ -95,12 +115,25 @@ const enTiempo = (m: number | null) => (m === null ? '—' : m < 60 ? `${m} min`
     <div class="flex flex-wrap items-baseline justify-between gap-3">
       <div>
         <p class="eyebrow">Interno</p>
-        <h1 class="mt-3 text-[clamp(1.7rem,4vw,2.5rem)] leading-tight">Tablero</h1>
+        <h1 class="mt-3 text-[clamp(1.7rem,4vw,2.5rem)] leading-tight">
+          {soloMiEquipo ? 'Mi equipo' : 'Tablero'}
+        </h1>
+        {soloMiEquipo && (
+          <p class="mt-2 text-[0.95rem] text-[var(--text-soft)]">
+            {quien.nombre} · {asesores.length} asesor{asesores.length === 1 ? '' : 'es'}
+          </p>
+        )}
       </div>
       <p class="text-[0.9rem]">
-        <a class="underline underline-offset-4" href="/panel/asesores/">Ruleta</a>
-        <span class="mx-2 text-[var(--text-mute)]">·</span>
-        <a class="underline underline-offset-4" href="/panel/leads/">Entrada de leads</a>
+        {!soloMiEquipo && (
+          <>
+            <a class="underline underline-offset-4" href="/panel/asesores/">Ruleta</a>
+            <span class="mx-2 text-[var(--text-mute)]">·</span>
+            <a class="underline underline-offset-4" href="/panel/leads/">Entrada de leads</a>
+            <span class="mx-2 text-[var(--text-mute)]">·</span>
+          </>
+        )}
+        <a class="underline underline-offset-4" href="/panel/clave/">Mi clave</a>
         <span class="mx-2 text-[var(--text-mute)]">·</span>
         <a class="underline underline-offset-4" href="/api/entrar?salir=1">Salir</a>
       </p>

@@ -16,7 +16,11 @@ Astro.response.headers.set('Cache-Control', 'no-store');
 // Quien ya entró no tiene nada que hacer aquí.
 const quien = await identificar(Astro.request);
 if (quien.tipo !== 'nadie') {
-  return Astro.redirect(quien.tipo === 'admin' ? '/panel/tablero/' : '/panel/mis-leads/', 302);
+  // El gerente aterriza en el tablero de su equipo; el asesor, en sus leads.
+  return Astro.redirect(
+    quien.tipo === 'asesor' ? '/panel/mis-leads/' : '/panel/tablero/',
+    302
+  );
 }
 
 const ir = Astro.url.searchParams.get('ir') ?? '';

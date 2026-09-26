@@ -156,7 +156,12 @@ export const POST: APIRoute = async ({ request }) => {
      * pantalla no dice nada. Mejor explicar de quién es el correo.
      */
     if (accion === 'acceso') {
-      const datosAcceso: { correo?: string | null; admin?: boolean } = {};
+      const datosAcceso: {
+        correo?: string | null;
+        admin?: boolean;
+        rol?: 'asesor' | 'gerente' | 'admin';
+        gerente_id?: string | null;
+      } = {};
       if ('correo' in datos) {
         const v = String(datos.correo ?? '').trim().toLowerCase();
         if (v && !/^[\w.+-]+@[\w.-]+\.[a-z]{2,}$/i.test(v)) {
@@ -171,6 +176,33 @@ export const POST: APIRoute = async ({ request }) => {
         datosAcceso.correo = v || null;
       }
       if ('admin' in datos) datosAcceso.admin = Boolean(datos.admin);
+
+      /* Fase 6 · rol y jerarquía. */
+      if ('rol' in datos) {
+        const r = String(datos.rol ?? '');
+        if (r !== 'asesor' && r !== 'gerente' && r !== 'admin') {
+          return json({ ok: false, error: 'Rol desconocido.' }, 400);
+        }
+        datosAcceso.rol = r;
+      }
+      if ('gerente_id' in datos) {
+        const g = String(datos.gerente_id ?? '').trim();
+        if (!g) datosAcceso.gerente_id = null;
+        else {
+          if (!ES_UUID.test(g)) return json({ ok: false, error: 'Gerente inválido.' }, 400);
+          if (g === id) return json({ ok: false, error: 'Nadie puede ser su propio gerente.' }, 400);
+          const jefe = await asesorPorId(g);
+          if (!jefe) return json({ ok: false, error: 'Ese gerente no existe.' }, 400);
+          if (jefe.rol === 'asesor' && jefe.admin !== true) {
+            return json(
+              { ok: false, error: `${jefe.nombre} no es gerente. Cámbiele el rol primero.` },
+              400
+            );
+          }
+          datosAcceso.gerente_id = g;
+        }
+      }
+
       await guardarAcceso(id, datosAcceso);
       return json({ ok: true });
     }

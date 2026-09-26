@@ -40,8 +40,8 @@ En Vercel se configuran en *Project Settings → Environment Variables*.
 Sin `SUPABASE_URL` y `SUPABASE_SERVICE_KEY` el sitio sigue funcionando: los leads
 van directos a AlterEstate como antes, y `/panel/leads` lo avisa en pantalla.
 La tabla se crea con `supabase/01-leads.sql`, `supabase/02-atencion.sql`,
-`supabase/03-ruleta.sql`, `supabase/04-crm.sql` y `supabase/05-invitaciones.sql`,
-en ese orden.
+`supabase/03-ruleta.sql`, `supabase/04-crm.sql`, `supabase/05-invitaciones.sql`
+y `supabase/06-equipos.sql`, en ese orden.
 
 **El reparto de leads.** La ruleta propia (tabla `asesores`) decide a quién le
 toca cada lead del sitio y se administra en `/panel/asesores`. Si la tabla está
@@ -55,6 +55,22 @@ y su clave —que le asigna el administrador en `/panel/asesores`— y trabaja s
 leads en `/panel/mis-leads`: etapas, notas e historial. El administrador ve todo
 en `/panel/tablero`. Un asesor solo puede tocar los leads que la ruleta le
 asignó; el filtro va en la consulta a la base, no en la plantilla.
+
+**Gerentes y equipos (Fase 6).** Tres roles: asesor, gerente y administración,
+en la columna «Rol y equipo» de `/panel/asesores`. Un gerente **no entra en la
+rotación**: ve el tablero de su equipo, mide, cambia etapas, anota y reasigna
+entre sus propios asesores, pero no recibe leads ni toca los de otro equipo.
+
+El reparto es **por equipo según la zona**: el lead de una zona va al equipo del
+gerente que cubre esa zona, y dentro del equipo al asesor con el turno más
+antiguo. Si ahí no hay nadie disponible, baja a cualquier asesor que cubra la
+zona y, en último término, a cualquier asesor activo — un organigrama mal
+configurado no puede costar un comprador.
+
+Todo el reparto pasa por un cerrojo (`pg_advisory_xact_lock`). Sin él, dos leads
+simultáneos de la misma zona se encontraban las filas del equipo bloqueadas una
+por la otra, `skip locked` las saltaba y el segundo lead se escapaba a un asesor
+de fuera del equipo. Se serializa el reparto, que a este volumen no se nota.
 
 **Cómo estrena clave un asesor.** El administrador pulsa «Invitar» en
 `/panel/asesores` y le manda el enlace que sale. El asesor lo abre, escribe la

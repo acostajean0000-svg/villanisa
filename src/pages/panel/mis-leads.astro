@@ -33,6 +33,8 @@ if (quien.tipo === 'nadie') return aLaPuerta('/panel/mis-leads/');
 
 // El administrador sin ficha de asesor no tiene "sus" leads: su sitio es el tablero.
 if (quien.tipo === 'admin' && !quien.asesor) return Astro.redirect('/panel/tablero/', 302);
+// El gerente tampoco recibe leads: la ruleta reparte entre asesores.
+if (quien.tipo === 'gerente') return Astro.redirect('/panel/tablero/', 302);
 
 const yo = quien.asesor!;
 Astro.response.headers.set('Cache-Control', 'no-store');

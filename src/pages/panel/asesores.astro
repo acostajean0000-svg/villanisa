@@ -34,8 +34,21 @@ try {
   error = (err as Error).message;
 }
 
+// Quién puede figurar como gerente de otro. Un asesor no: dejaría un
+// organigrama de tres niveles que ni el reparto ni el tablero contemplan.
+const posiblesJefes = asesores.filter((a) => a.rol === 'gerente' || a.admin === true);
+
+const ROL_NOMBRE: Record<string, string> = {
+  asesor: 'Asesor',
+  gerente: 'Gerente',
+  admin: 'Administración',
+};
+
 const ahora = new Date();
-const disponibles = asesores.filter((a) => disponibleAhora(a, ahora));
+// Fase 6: gerentes y administración no entran en la rotación, así que tampoco
+// cuentan como disponibles ni pueden salir como «le toca a».
+const enRotacion = asesores.filter((a) => (a.rol ?? 'asesor') === 'asesor' && a.admin !== true);
+const disponibles = enRotacion.filter((a) => disponibleAhora(a, ahora));
 
 /**
  * A quién le toca el próximo lead: el disponible con el turno más antiguo.
@@ -49,8 +62,8 @@ const proximo =
     return ta - tb || a.orden - b.orden;
   })[0] ?? null;
 
-const rotos = asesores.filter((a) => a.ae_rechazado);
-const sinRef = asesores.filter((a) => a.activo && !a.ae_ref && !a.ae_rechazado);
+const rotos = enRotacion.filter((a) => a.ae_rechazado);
+const sinRef = enRotacion.filter((a) => a.activo && !a.ae_ref && !a.ae_rechazado);
 
 const fecha = (iso: string | null) =>
   iso
@@ -179,6 +192,7 @@ const estado = (a: Asesor) => {
               <tr>
                 <th class="p-3 font-semibold">Asesor</th>
                 <th class="p-3 font-semibold">AlterEstate</th>
+                <th class="p-3 font-semibold">Rol y equipo</th>
                 <th class="p-3 font-semibold">Acceso al panel</th>
                 <th class="p-3 font-semibold">Zonas</th>
                 <th class="p-3 font-semibold">Horario</th>
@@ -208,6 +222,28 @@ const estado = (a: Asesor) => {
                         <p class="mt-1.5 max-w-[13rem] text-[0.72rem] text-[var(--text-mute)]">{a.ae_detalle}</p>
                       )}
                     </td>
+                    {/* Fase 6 · rol y a quién reporta. Se guarda con el mismo
+                        botón que el acceso: son la misma clase de dato. */}
+                    <td class="p-3">
+                      <select class="ac rounded-lg border border-[var(--border-control)] bg-[var(--surface-raised)] px-2 py-1.5 text-[0.85rem]" data-k="rol">
+                        {['asesor', 'gerente', 'admin'].map((r) => (
+                          <option value={r} selected={(a.rol ?? 'asesor') === r}>{ROL_NOMBRE[r]}</option>
+                        ))}
+                      </select>
+                      {(a.rol ?? 'asesor') === 'asesor' ? (
+                        <select class="ac mt-1.5 block w-[10rem] rounded-lg border border-[var(--border-control)] bg-[var(--surface-raised)] px-2 py-1.5 text-[0.82rem]" data-k="gerente_id">
+                          <option value="">— sin gerente —</option>
+                          {posiblesJefes.filter((j) => j.id !== a.id).map((j) => (
+                            <option value={j.id} selected={a.gerente_id === j.id}>{j.nombre}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <p class="mt-1.5 text-[0.72rem] text-[var(--text-mute)]">
+                          No entra en la rotación
+                        </p>
+                      )}
+                    </td>
+
                     {/* Fase 5 · acceso propio. Va aparte del botón "Guardar" a
                         propósito: cambiar un correo de entrada o una clave no
                         debería viajar mezclado con un cambio de horario. */}

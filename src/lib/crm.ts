@@ -50,10 +50,15 @@ export interface Nota {
   creado_en: string;
 }
 
+export type Rol = 'asesor' | 'gerente' | 'admin';
+
 export interface AsesorAcceso extends Asesor {
   correo: string | null;
   clave_hash: string | null;
   admin: boolean;
+  /** Fase 6. `admin` se mantiene por compatibilidad con lo ya guardado. */
+  rol: Rol;
+  gerente_id: string | null;
   ultimo_acceso: string | null;
   /** Fase 5b: hasta cuándo vale la invitación pendiente, si la hay. */
   invitacion_hasta?: string | null;
@@ -153,7 +158,7 @@ export async function guardarClave(id: string, hash: string): Promise<void> {
  */
 export async function guardarAcceso(
   id: string,
-  cambios: { correo?: string | null; admin?: boolean }
+  cambios: { correo?: string | null; admin?: boolean; rol?: Rol; gerente_id?: string | null }
 ): Promise<void> {
   const parche: Record<string, unknown> = {};
   if (cambios.correo !== undefined) {
@@ -162,6 +167,18 @@ export async function guardarAcceso(
     if (!c) parche.clave_hash = null;
   }
   if (cambios.admin !== undefined) parche.admin = cambios.admin === true;
+  if (cambios.rol !== undefined) {
+    parche.rol = cambios.rol;
+    // `admin` es la marca vieja de la Fase 5. Se mantiene al día con el rol
+    // para que no queden dos verdades contradictorias en la misma fila.
+    parche.admin = cambios.rol === 'admin';
+    // Un gerente o un administrador no entra en la rotación, así que tampoco
+    // debe colgar de otro gerente: su equipo lo definen sus asesores.
+    if (cambios.rol !== 'asesor') parche.gerente_id = null;
+  }
+  if (cambios.gerente_id !== undefined && parche.gerente_id === undefined) {
+    parche.gerente_id = cambios.gerente_id || null;
+  }
   if (!Object.keys(parche).length) return;
   await pedir(`asesores?id=eq.${encodeURIComponent(id)}`, {
     method: 'PATCH',
@@ -184,6 +201,38 @@ export async function guardarAcceso(
 export async function leadsDeAsesor(asesorId: string, limite = 300): Promise<LeadCRM[]> {
   const res = await pedir(
     `leads?select=*&asesor_id=eq.${encodeURIComponent(asesorId)}` +
+      `&order=creado_en.desc&limit=${Math.min(limite, 1000)}`
+  );
+  return (await res.json()) as LeadCRM[];
+}
+
+/**
+ * Los asesores de un gerente.
+ *
+ * Un solo nivel: el equipo son sus asesores directos, no los asesores de otro
+ * gerente que dependa de él. Villanisa tiene dos niveles, y una jerarquía
+ * recursiva aquí sería complejidad pagada por adelantado para un caso que no
+ * existe.
+ */
+export async function equipoDe(gerenteId: string): Promise<AsesorAcceso[]> {
+  const res = await pedir(
+    `asesores?select=*&gerente_id=eq.${encodeURIComponent(gerenteId)}&order=nombre.asc`
+  );
+  return (await res.json()) as AsesorAcceso[];
+}
+
+/**
+ * Leads de un conjunto de asesores.
+ *
+ * Con la lista vacía devuelve vacío SIN consultar: un `in.()` sin valores es un
+ * error de PostgREST, y un gerente recién creado sin equipo vería un fallo
+ * donde lo correcto es «todavía no tiene a nadie».
+ */
+export async function leadsDeEquipo(asesorIds: string[], limite = 500): Promise<LeadCRM[]> {
+  if (!asesorIds.length) return [];
+  const lista = asesorIds.slice(0, 200).map((i) => `"${i}"`).join(',');
+  const res = await pedir(
+    `leads?select=*&asesor_id=in.(${encodeURIComponent(lista)})` +
       `&order=creado_en.desc&limit=${Math.min(limite, 1000)}`
   );
   return (await res.json()) as LeadCRM[];
