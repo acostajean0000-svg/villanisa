@@ -239,7 +239,7 @@ const porAsesorOrdenado = [...porAsesor].sort((a, b) =>
       {huerfanos.length > 0 && (
         <>
           <span class="mx-2 text-[var(--text-mute)]">·</span>
-          <a class="underline underline-offset-4 font-medium text-[#a52c2c]" href="/panel/tablero/?asesor=sin">
+          <a class="underline underline-offset-4 font-medium text-[#a52c2c]" href="/panel/tablero/?asesor=sin#leads">
             {huerfanos.length} sin asesor
           </a>
         </>
@@ -266,9 +266,9 @@ const porAsesorOrdenado = [...porAsesor].sort((a, b) =>
           </thead>
           <tbody>
             {porAsesorOrdenado.map((f) => (
-              <tr class="border-b border-[var(--line)] last:border-0 hover:bg-[var(--color-bone-100)]">
+              <tr class={`border-b border-[var(--line)] last:border-0 hover:bg-[var(--color-bone-100)] ${filtroAsesor === f.asesor.id ? 'bg-[var(--color-brand-50)]' : ''}`}>
                 <td class="py-3 pl-4 pr-4">
-                  <a href={`/panel/tablero/?asesor=${f.asesor.id}`} class="flex items-center gap-3">
+                  <a href={`/panel/tablero/?asesor=${f.asesor.id}#leads`} class="flex items-center gap-3">
                     <span
                       class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[0.75rem] font-semibold text-white"
                       style={{ background: f.asesor.activo ? 'var(--color-brand-500)' : 'var(--text-mute)' }}
@@ -321,11 +321,25 @@ const porAsesorOrdenado = [...porAsesor].sort((a, b) =>
     </section>
   )}
 
-  <section class="container-x mt-10 pb-24">
-    <h2 class="text-[1.05rem] font-semibold text-[var(--text-soft)]">
-      {etapaFiltro ? ETAPA_NOMBRE[etapaFiltro] : 'Leads abiertos'}
-      <span class="ml-2 font-normal text-[var(--text-mute)]">({visibles.length})</span>
-    </h2>
+  <section id="leads" class="container-x mt-10 scroll-mt-24 pb-24">
+    <div class="flex flex-wrap items-center gap-3">
+      <h2 class="text-[1.05rem] font-semibold text-[var(--text-soft)]">
+        {etapaFiltro ? ETAPA_NOMBRE[etapaFiltro] : 'Leads abiertos'}
+        <span class="ml-2 font-normal text-[var(--text-mute)]">({visibles.length})</span>
+      </h2>
+      {filtroAsesor && (
+        <span class="inline-flex items-center gap-2 rounded-full bg-[var(--color-brand-50)] py-1 pl-3 pr-1.5 text-[0.82rem]">
+          {filtroAsesor === 'sin' ? 'Sin asesor' : `Solo de ${nombrePor.get(filtroAsesor) ?? 'ese asesor'}`}
+          <a
+            href={`/panel/tablero/${etapaFiltro ? `?etapa=${etapaFiltro}` : ''}#leads`}
+            class="flex h-5 w-5 items-center justify-center rounded-full bg-white/70 hover:bg-white"
+            aria-label="Quitar filtro de asesor"
+          >
+            ×
+          </a>
+        </span>
+      )}
+    </div>
     {visibles.length === 0 ? (
       <p class="mt-4 rounded-xl border border-dashed border-[var(--line)] p-8 text-center text-[0.95rem] text-[var(--text-soft)]">
         No hay leads en este filtro.
