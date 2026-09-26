@@ -34,6 +34,9 @@ npm run build          # genera dist/
 | `WHATSAPP_IDIOMA` | Código de idioma de la plantilla (por defecto `es`) | Solo servidor |
 | `ENVIAR_A_ALTERESTATE` | `0` apaga la réplica de leads al CRM externo. Ausente o cualquier otro valor = encendido | Solo servidor |
 | `SESION_SECRETO` | Firma las sesiones del equipo. Si falta se usa `PANEL_CLAVE` | Solo servidor · sensible |
+| `META_APP_ID` | App de Meta para recibir leads de Facebook (Fase 7) | Solo servidor |
+| `META_APP_SECRET` | Firma de los webhooks de Meta y canje de tokens | Solo servidor · sensible |
+| `META_VERIFY_TOKEN` | Cadena inventada que Meta devuelve al suscribir el webhook | Solo servidor · sensible |
 
 En Vercel se configuran en *Project Settings → Environment Variables*.
 
@@ -41,7 +44,7 @@ Sin `SUPABASE_URL` y `SUPABASE_SERVICE_KEY` el sitio sigue funcionando: los lead
 van directos a AlterEstate como antes, y `/panel/leads` lo avisa en pantalla.
 La tabla se crea con `supabase/01-leads.sql`, `supabase/02-atencion.sql`,
 `supabase/03-ruleta.sql`, `supabase/04-crm.sql`, `supabase/05-invitaciones.sql`
-y `supabase/06-equipos.sql`, en ese orden.
+`supabase/06-equipos.sql` y `supabase/07-meta.sql`, en ese orden.
 
 **El reparto de leads.** La ruleta propia (tabla `asesores`) decide a quién le
 toca cada lead del sitio y se administra en `/panel/asesores`. Si la tabla está
@@ -55,6 +58,25 @@ y su clave —que le asigna el administrador en `/panel/asesores`— y trabaja s
 leads en `/panel/mis-leads`: etapas, notas e historial. El administrador ve todo
 en `/panel/tablero`. Un asesor solo puede tocar los leads que la ruleta le
 asignó; el filtro va en la consulta a la base, no en la plantilla.
+
+**Leads de Facebook (Fase 7).** `/panel/meta` conecta una página de Facebook,
+lista sus formularios y deja elegir cuáles entran al sistema y con qué zona. El
+webhook vive en `/api/meta/webhook`; el aviso de Meta solo trae un identificador,
+así que los datos del contacto se piden después a la Graph API con el token de
+la página.
+
+Tres cosas que gobiernan ese archivo: se contesta 200 siempre que la firma sea
+válida (si Meta acumula fallos desactiva la suscripción de la página entera, y
+quedarse sin recibir nada es peor que perder un lead); la firma se verifica
+sobre el cuerpo **crudo**, porque reserializar el JSON cambia el hash; y solo
+entran los formularios dados de alta y activos. `meta_leadgen_id` es único, así
+que el reintento de Meta no crea un segundo contacto.
+
+Estos leads **no** se replican a AlterEstate: el formulario que se conecta aquí
+hay que apagarlo allá o el contacto entra dos veces.
+
+Requiere una app de Meta con `leads_retrieval` aprobado, lo que exige
+verificación del negocio y revisión de la app.
 
 **Gerentes y equipos (Fase 6).** Tres roles: asesor, gerente y administración,
 en la columna «Rol y equipo» de `/panel/asesores`. Un gerente **no entra en la

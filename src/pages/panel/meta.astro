@@ -1,0 +1,291 @@
+---
+/**
+ * Panel · Campañas de Meta — Fase 7.
+ *
+ * Conectar la página, elegir qué formularios entran al sistema y a qué zona
+ * pertenece cada uno. Es la pantalla equivalente a la de AlterEstate, pero los
+ * leads terminan en la base de Villanisa.
+ */
+import Base from '../../layouts/Base.astro';
+import { identificar, aLaPuerta } from '../../lib/guardia';
+import { listarAsesores } from '../../lib/ruleta';
+import {
+  listarPaginas,
+  listarFormularios,
+  metaConfigurado,
+  type FormularioMeta,
+  type PaginaMeta,
+} from '../../lib/meta';
+
+export const prerender = false;
+
+const quien = await identificar(Astro.request);
+if (quien.tipo === 'nadie') return aLaPuerta('/panel/meta/');
+if (quien.tipo !== 'admin') return Astro.redirect('/panel/mis-leads/', 302);
+
+Astro.response.headers.set('Cache-Control', 'no-store');
+
+const configurado = metaConfigurado();
+let paginas: PaginaMeta[] = [];
+let formularios: FormularioMeta[] = [];
+let zonasConocidas: string[] = [];
+let error: string | null = null;
+
+if (configurado) {
+  try {
+    [paginas, formularios] = await Promise.all([listarPaginas(), listarFormularios()]);
+    // Las zonas que ya usa la ruleta: así no se escriben a mano y no se
+    // introducen slugs que ningún gerente cubre.
+    const set = new Set<string>();
+    for (const a of await listarAsesores()) for (const z of a.zonas ?? []) set.add(z);
+    zonasConocidas = [...set].sort();
+  } catch (err) {
+    error = (err as Error).message;
+  }
+}
+
+const activos = formularios.filter((f) => f.activo);
+const rotas = paginas.filter((p) => p.fallo_en);
+
+const MENSAJE: Record<string, string> = {
+  configuracion: 'Faltan las variables de Meta en el servidor.',
+  permiso: 'Solo administración puede conectar Facebook.',
+  cancelado: 'Canceló la conexión en Facebook.',
+  estado: 'La vuelta de Facebook no se pudo verificar. Vuelva a intentarlo.',
+  codigo: 'Facebook no devolvió el código de autorización.',
+  token: 'No se pudo canjear el código por un token.',
+  'sin-paginas': 'Esa cuenta de Facebook no administra ninguna página.',
+  servidor: 'Falló el servidor al conectar. Intente de nuevo.',
+};
+const e = Astro.url.searchParams.get('e');
+const problema = e ? (MENSAJE[e] ?? MENSAJE.servidor) : null;
+const hecho = Astro.url.searchParams.get('ok') === '1';
+const aviso = Astro.url.searchParams.get('aviso');
+const nPaginas = Astro.url.searchParams.get('paginas');
+const nFormularios = Astro.url.searchParams.get('formularios');
+
+const fecha = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleString('es-DO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
+---
+
+<Base title="Campañas de Meta · Villanisa" description="Leads de Facebook en el sistema propio." noindex={true}>
+  <section class="container-x pt-12">
+    <div class="flex flex-wrap items-baseline justify-between gap-3">
+      <div>
+        <p class="eyebrow">Interno</p>
+        <h1 class="mt-3 text-[clamp(1.7rem,4vw,2.5rem)] leading-tight">Campañas de Meta</h1>
+      </div>
+      <p class="text-[0.9rem]">
+        <a class="underline underline-offset-4" href="/panel/tablero/">Tablero</a>
+        <span class="mx-2 text-[var(--text-mute)]">·</span>
+        <a class="underline underline-offset-4" href="/panel/asesores/">Ruleta</a>
+      </p>
+    </div>
+    <p class="mt-4 max-w-2xl text-[1rem] leading-relaxed text-[var(--text-soft)]">
+      Los leads de los formularios que active aquí entran a la base de Villanisa y los
+      reparte su ruleta. <strong>No se replican a AlterEstate</strong>: apague ese
+      formulario en la integración de ellos, o el contacto entrará dos veces.
+    </p>
+  </section>
+
+  {!configurado && (
+    <section class="container-x mt-8">
+      <div class="rounded-xl border border-[var(--color-gold-600)] bg-[#fdf8ec] p-5 text-[0.95rem]">
+        <p class="font-semibold">Falta configurar la app de Meta.</p>
+        <p class="mt-2 text-[var(--text-soft)]">
+          Hacen falta <code>META_APP_ID</code>, <code>META_APP_SECRET</code> y
+          <code>META_VERIFY_TOKEN</code> en Vercel, y la app de Meta con el permiso
+          <code>leads_retrieval</code> aprobado.
+        </p>
+      </div>
+    </section>
+  )}
+
+  {problema && (
+    <section class="container-x mt-6">
+      <p role="alert" class="rounded-lg border border-[var(--color-gold-600)] bg-[#fdf3f3] px-4 py-3 text-[0.9rem]">{problema}</p>
+    </section>
+  )}
+
+  {hecho && (
+    <section class="container-x mt-6">
+      <p class="rounded-lg border border-[var(--line)] bg-[#f2f7f2] px-4 py-3 text-[0.9rem]">
+        Conectado: {nPaginas} página(s), {nFormularios} formulario(s) nuevos.
+        Actívelos abajo.
+        {aviso && <span class="block mt-1 text-[var(--color-gold-600)]">Aviso: {aviso}</span>}
+      </p>
+    </section>
+  )}
+
+  {error && (
+    <section class="container-x mt-6">
+      <p class="rounded-lg border border-[var(--color-gold-600)] bg-[#fdf3f3] px-4 py-3 text-[0.9rem]">{error}</p>
+    </section>
+  )}
+
+  {rotas.length > 0 && (
+    <section class="container-x mt-6">
+      <div class="rounded-xl border border-[var(--color-gold-600)] bg-[#fdf3f3] p-5 text-[0.95rem]">
+        <p class="font-semibold">
+          {rotas.length === 1 ? 'Una página dejó de funcionar' : `${rotas.length} páginas dejaron de funcionar`}.
+        </p>
+        <ul class="mt-2 space-y-1 text-[var(--text-soft)]">
+          {rotas.map((p) => (
+            <li>{p.nombre} — {p.fallo_detalle} ({fecha(p.fallo_en)})</li>
+          ))}
+        </ul>
+        <p class="mt-2 text-[var(--text-soft)]">
+          Casi siempre es que quien la conectó cambió su clave de Facebook o revocó
+          permisos. Vuelva a conectar para renovarla.
+        </p>
+      </div>
+    </section>
+  )}
+
+  <section class="container-x mt-8">
+    <div class="rounded-xl border border-[var(--border)] p-6">
+      <div class="flex flex-wrap items-baseline justify-between gap-3">
+        <h2 class="text-[1.2rem]">Páginas conectadas</h2>
+        {configurado && (
+          <a href="/api/meta/conectar" class="btn btn-primary">
+            {paginas.length ? 'Volver a conectar' : 'Conectar Facebook'}
+          </a>
+        )}
+      </div>
+
+      {paginas.length === 0 ? (
+        <p class="mt-4 text-[0.95rem] text-[var(--text-soft)]">
+          Ninguna todavía. Conecte con una cuenta que administre la página de la
+          empresa — conviene que no sea la cuenta personal de un empleado, porque el
+          día que esa persona cambie su clave se cortan los leads de todas las campañas.
+        </p>
+      ) : (
+        <ul class="mt-4 space-y-2 text-[0.92rem]">
+          {paginas.map((p) => (
+            <li class="flex flex-wrap items-baseline justify-between gap-2 border-b border-[var(--line)] pb-2">
+              <span>
+                <strong>{p.nombre}</strong>
+                <span class="ml-2 text-[0.8rem] text-[var(--text-mute)]">
+                  conectada por {p.conectada_por ?? '—'} · {fecha(p.conectada_en)}
+                </span>
+              </span>
+              <span class={p.fallo_en ? 'text-[var(--color-gold-600)]' : 'text-[var(--text-mute)]'}>
+                {p.fallo_en ? 'con fallo' : 'activa'}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  </section>
+
+  <section class="container-x mt-8 pb-24">
+    <div class="rounded-xl border border-[var(--border)] p-6">
+      <h2 class="text-[1.2rem]">
+        Formularios
+        <span class="ml-2 text-[0.9rem] font-normal text-[var(--text-mute)]">
+          {activos.length} de {formularios.length} activos
+        </span>
+      </h2>
+      <p class="mt-2 max-w-2xl text-[0.85rem] leading-relaxed text-[var(--text-mute)]">
+        Entran al sistema solo los que marque. La zona decide a qué equipo le toca:
+        use los mismos slugs que la ruleta{zonasConocidas.length > 0 && <> — hoy: {zonasConocidas.join(', ')}</>}.
+        Sin zona, se reparte entre todos los asesores activos.
+      </p>
+
+      {formularios.length === 0 ? (
+        <p class="mt-4 text-[0.95rem] text-[var(--text-soft)]">
+          Todavía no hay formularios. Conecte una página y aparecerán aquí.
+        </p>
+      ) : (
+        <div class="mt-5 overflow-x-auto">
+          <table class="w-full min-w-[46rem] border-collapse text-[0.9rem]">
+            <thead>
+              <tr class="border-b border-[var(--line)] text-left text-[var(--text-mute)]">
+                <th class="py-2 pr-4 font-medium">Activo</th>
+                <th class="py-2 pr-4 font-medium">Formulario</th>
+                <th class="py-2 pr-4 font-medium">Zona</th>
+                <th class="py-2 pr-4 font-medium">Campaña / quien paga</th>
+                <th class="py-2 pr-4 font-medium">Recibidos</th>
+                <th class="py-2 font-medium"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {formularios.map((f) => (
+                <tr class="fila border-b border-[var(--line)] align-top" data-id={f.id}>
+                  <td class="py-2.5 pr-4">
+                    <input type="checkbox" class="c" data-k="activo" checked={f.activo} />
+                  </td>
+                  <td class="py-2.5 pr-4">
+                    {f.nombre}
+                    <br />
+                    <span class="text-[0.75rem] text-[var(--text-mute)]">{f.form_id}</span>
+                  </td>
+                  <td class="py-2.5 pr-4">
+                    <input
+                      class="c w-[9rem] rounded-lg border border-[var(--border-control)] bg-[var(--surface-raised)] px-2 py-1.5"
+                      data-k="zona"
+                      value={f.zona ?? ''}
+                      placeholder="todas"
+                      list="zonas"
+                    />
+                  </td>
+                  <td class="py-2.5 pr-4">
+                    <input
+                      class="c w-[11rem] rounded-lg border border-[var(--border-control)] bg-[var(--surface-raised)] px-2 py-1.5"
+                      data-k="campana"
+                      value={f.campana ?? ''}
+                      placeholder="p. ej. Felipe Berroa"
+                    />
+                  </td>
+                  <td class="py-2.5 pr-4 whitespace-nowrap">
+                    <strong>{f.recibidos}</strong>
+                    <br />
+                    <span class="text-[0.75rem] text-[var(--text-mute)]">{fecha(f.ultimo_en)}</span>
+                  </td>
+                  <td class="py-2.5">
+                    <button type="button" class="guardar rounded-full bg-[var(--color-brand-500)] px-3 py-1.5 text-[0.78rem] text-white">
+                      Guardar
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <datalist id="zonas">
+            {zonasConocidas.map((z) => <option value={z} />)}
+          </datalist>
+        </div>
+      )}
+    </div>
+  </section>
+
+  <script is:inline>
+    document.addEventListener('click', async (e) => {
+      if (!e.target.classList.contains('guardar')) return;
+      const fila = e.target.closest('.fila');
+      const b = e.target;
+      const antes = b.textContent;
+      b.disabled = true;
+      b.textContent = 'Guardando…';
+      const datos = {};
+      fila.querySelectorAll('.c').forEach((el) => {
+        datos[el.dataset.k] = el.type === 'checkbox' ? el.checked : el.value;
+      });
+      try {
+        const r = await fetch('/api/meta/formularios', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: fila.dataset.id, datos }),
+        });
+        const d = await r.json();
+        if (!d.ok) throw new Error(d.error || 'no se pudo guardar');
+        location.reload();
+      } catch (err) {
+        b.disabled = false;
+        b.textContent = antes;
+        alert('No se pudo guardar: ' + err.message);
+      }
+    });
+  </script>
+</Base>

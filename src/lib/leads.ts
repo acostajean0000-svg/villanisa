@@ -37,6 +37,10 @@ export interface LeadNuevo {
   utm_content?: string;
   utm_term?: string;
   referente?: string;
+  /** Fase 7 · procedencia cuando el lead viene de un anuncio de Meta. */
+  meta_leadgen_id?: string;
+  meta_form_id?: string;
+  meta_ad_id?: string;
 }
 
 export interface LeadGuardado extends LeadNuevo {
