@@ -19,6 +19,7 @@
 import type { Agent } from './alterestate';
 import { env } from './auth';
 import { listarAsesores, crearAsesor, type Asesor } from './ruleta';
+import type { Rol } from './crm';
 
 export interface Candidato {
   /** Lo que se guardará en `asesores.nombre`. */
@@ -36,6 +37,42 @@ export interface Candidato {
   existeComo: string | null;
   /** Por qué no se puede importar, si es el caso. */
   problema: string | null;
+  /** El cargo tal como está escrito en AlterEstate. Vacío si nadie lo llenó. */
+  cargo: string | null;
+  /** Rol que se propone a partir del cargo. El administrador puede cambiarlo. */
+  rolSugerido: Rol;
+}
+
+/**
+ * Del cargo de AlterEstate al rol del panel.
+ *
+ * Es una conjetura sobre texto escrito a mano por personas distintas a lo
+ * largo de años, así que la pantalla muestra el cargo al lado para que el
+ * administrador vea de dónde sale cada propuesta y la corrija.
+ *
+ * `admin` nunca se propone solo. Dar permiso total sobre todos los leads del
+ * negocio por lo que diga un campo de texto de un sistema ajeno es exactamente
+ * la clase de cosa que no debe pasar sin que alguien la elija a mano.
+ */
+export function rolSegunCargo(cargo: string | null): Rol {
+  const c = (cargo ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (!c) return 'asesor';
+
+  // "Asesor de gerencia" o "asistente de gerente" no son gerentes: si la
+  // palabra va detrás de una preposición, es de quién depende, no lo que es.
+  if (/\b(de|del|para)\s+(la\s+)?(gerenci|gerente|director)/.test(c)) return 'asesor';
+  if (/\b(asistente|auxiliar|secretari)/.test(c)) return 'asesor';
+
+  // Raíces, no palabras completas: el mismo cargo aparece escrito en
+  // masculino, femenino y como sustantivo ("gerente", "gerencia",
+  // "coordinadora", "coordinación") y todos significan lo mismo aquí.
+  if (/\b(gerent|gerenci|director|supervisor|jefe|encargad|coordinad|coordinac|manager|broker)/.test(c)) {
+    return 'gerente';
+  }
+  return 'asesor';
 }
 
 /**
@@ -99,6 +136,8 @@ export async function candidatos(): Promise<Candidato[]> {
     const uid = texto(ag.uid, 40) || null;
     const ref = correo ?? uid;
 
+    const cargo = texto(ag.position, 80) || null;
+
     let problema: string | null = null;
     if (!nombre) problema = 'sin nombre en el CRM';
     else if (!ref) problema = 'sin correo ni UID: la ruleta no podría asignarle en el CRM';
@@ -120,6 +159,8 @@ export async function candidatos(): Promise<Candidato[]> {
       existe: Boolean(encontrado),
       existeComo: encontrado ? encontrado.nombre : null,
       problema,
+      cargo,
+      rolSugerido: rolSegunCargo(cargo),
     });
   }
 
@@ -144,15 +185,31 @@ export interface Resultado {
  * pantalla y se pulsó el botón alguien pudo crear a ese asesor a mano, y así
  * no se duplica.
  */
-export async function importar(refs: string[]): Promise<Resultado> {
-  const pedidas = new Set(refs.map((r) => texto(r, 160).toLowerCase()).filter(Boolean));
+export async function importar(
+  seleccion: Array<{ ref: string; rol?: string }>
+): Promise<Resultado> {
+  /**
+   * Qué rol se le da a cada uno.
+   *
+   * Solo se aceptan 'asesor' y 'gerente'. Convertir a alguien en
+   * administración desde una pantalla de importación masiva sería un clic de
+   * distancia entre traer el equipo y regalar el negocio; para eso está el
+   * desplegable de la tabla, uno por uno.
+   */
+  const pedidas = new Map<string, 'asesor' | 'gerente'>();
+  for (const s of seleccion) {
+    const ref = texto(s?.ref, 160).toLowerCase();
+    if (!ref) continue;
+    pedidas.set(ref, s?.rol === 'gerente' ? 'gerente' : 'asesor');
+  }
   if (!pedidas.size) return { creados: [], omitidos: [] };
 
   const lista = await candidatos();
   const res: Resultado = { creados: [], omitidos: [] };
 
   for (const c of lista) {
-    if (!c.ref || !pedidas.has(c.ref.toLowerCase())) continue;
+    const rol = c.ref ? pedidas.get(c.ref.toLowerCase()) : undefined;
+    if (!c.ref || !rol) continue;
     if (c.problema) {
       res.omitidos.push({ nombre: c.nombre, motivo: c.problema });
       continue;
@@ -164,6 +221,7 @@ export async function importar(refs: string[]): Promise<Resultado> {
     try {
       await crearAsesor({
         nombre: c.nombre,
+        rol,
         ae_ref: c.ref,
         telefono: c.telefono ?? undefined,
         // El correo del CRM sirve también de correo de entrada al panel. Solo
@@ -172,7 +230,7 @@ export async function importar(refs: string[]): Promise<Resultado> {
         // Apagados a propósito: ver la cabecera de este archivo.
         activo: false,
       });
-      res.creados.push(c.nombre);
+      res.creados.push(rol === 'gerente' ? `${c.nombre} (gerente)` : c.nombre);
     } catch (err) {
       res.omitidos.push({ nombre: c.nombre, motivo: (err as Error).message });
     }

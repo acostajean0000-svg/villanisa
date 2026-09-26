@@ -72,6 +72,14 @@ simultáneos de la misma zona se encontraban las filas del equipo bloqueadas una
 por la otra, `skip locked` las saltaba y el segundo lead se escapaba a un asesor
 de fuera del equipo. Se serializa el reparto, que a este volumen no se nota.
 
+Al traer usuarios de AlterEstate, el rol se propone a partir de su campo
+`position` (el cargo): «Gerente de Ventas» o «Coordinación» salen como gerente,
+«Asesor Inmobiliario» como asesor, y «Asesor de Gerencia» o «Asistente del
+Gerente» como asesor — si la palabra va detrás de una preposición indica de
+quién depende, no lo que es. La pantalla muestra el cargo al lado de cada
+nombre, porque es una conjetura sobre texto escrito a mano. `admin` nunca se
+propone por el cargo: eso se da uno por uno en la tabla.
+
 **Cómo estrena clave un asesor.** El administrador pulsa «Invitar» en
 `/panel/asesores` y le manda el enlace que sale. El asesor lo abre, escribe la
 clave que quiera y el enlace se quema; caduca a los 7 días y pedir uno nuevo

@@ -136,9 +136,13 @@ export const POST: APIRoute = async ({ request }) => {
     }
 
     if (accion === 'importar') {
-      const refs = Array.isArray(datos.refs) ? datos.refs.map((r) => String(r)).slice(0, 200) : [];
-      if (!refs.length) return json({ ok: false, error: 'No marcó a ningún asesor.' }, 400);
-      return json({ ok: true, ...(await importar(refs)) });
+      const bruta = Array.isArray(datos.seleccion) ? datos.seleccion.slice(0, 200) : [];
+      const seleccion = bruta
+        .map((s) => s as { ref?: unknown; rol?: unknown })
+        .map((s) => ({ ref: String(s?.ref ?? ''), rol: String(s?.rol ?? 'asesor') }))
+        .filter((s) => s.ref);
+      if (!seleccion.length) return json({ ok: false, error: 'No marcó a nadie.' }, 400);
+      return json({ ok: true, ...(await importar(seleccion)) });
     }
 
     if (!id || !ES_UUID.test(id)) return json({ ok: false, error: 'Identificador inválido' }, 400);

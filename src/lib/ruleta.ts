@@ -155,10 +155,11 @@ export async function guardarAsesor(id: string, cambios: CambioAsesor): Promise<
  * Acepta `correo` aunque no sea parte de `CambioAsesor`: ese campo pertenece al
  * acceso al panel (Fase 5) y no a la rotación, pero al importar desde
  * AlterEstate viene en el mismo paquete y separarlo en dos escrituras dejaría
- * la puerta abierta a asesores creados a medias.
+ * la puerta abierta a asesores creados a medias. Lo mismo con `rol`, que llega
+ * del cargo del CRM en esa misma importación.
  */
 export async function crearAsesor(
-  datos: CambioAsesor & { nombre: string; correo?: string | null }
+  datos: CambioAsesor & { nombre: string; correo?: string | null; rol?: 'asesor' | 'gerente' }
 ): Promise<void> {
   const cred = credenciales();
   if (!cred) throw new Error('La ruleta no está configurada.');

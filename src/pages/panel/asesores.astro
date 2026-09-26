@@ -498,18 +498,31 @@ const estado = (a: Asesor) => {
               } else {
                 // Nada marcado de entrada: traer 54 cuentas de golpe es
                 // justo lo que no queremos que pase por inercia.
+                const conCargo = nuevos.filter((c) => c.cargo).length;
+                const gerentes = nuevos.filter((c) => c.rolSugerido === 'gerente').length;
                 zona.innerHTML =
                   '<p class="text-[0.9rem]">' + nuevos.length + ' por traer. Marque a los que trabajan hoy:</p>' +
-                  '<ul class="mt-3 grid gap-2 sm:grid-cols-2">' +
+                  (conCargo === 0
+                    ? '<p class="mt-1 text-[0.82rem] text-[var(--text-mute)]">Ninguno tiene el cargo llenado en AlterEstate, así que todos vienen como asesor. Cambie a mano los que sean gerentes.</p>'
+                    : '<p class="mt-1 text-[0.82rem] text-[var(--text-mute)]">El rol sale del cargo que tienen en AlterEstate (' +
+                      conCargo + ' de ' + nuevos.length + ' lo tienen puesto, ' + gerentes +
+                      ' salen como gerente). Revíselo: es una conjetura sobre texto escrito a mano.</p>') +
+                  '<ul class="mt-3 space-y-2">' +
                   nuevos
                     .map(
-                      (c) =>
-                        '<li><label class="flex items-start gap-2 text-[0.88rem]">' +
-                        '<input type="checkbox" class="i-c" value="' + esc(c.ref) + '">' +
-                        '<span><strong>' + esc(c.nombre) + '</strong><br>' +
-                        '<span class="text-[0.78rem] text-[var(--text-mute)]">' +
+                      (c, i) =>
+                        '<li class="flex items-start gap-2 text-[0.88rem]">' +
+                        '<input type="checkbox" class="i-c" id="ic' + i + '" value="' + esc(c.ref) + '">' +
+                        '<label for="ic' + i + '" class="flex-1">' +
+                        '<strong>' + esc(c.nombre) + '</strong>' +
+                        (c.cargo ? ' <span class="text-[0.78rem] text-[var(--text-mute)]">· ' + esc(c.cargo) + '</span>' : '') +
+                        '<br><span class="text-[0.78rem] text-[var(--text-mute)]">' +
                         esc(c.correo || c.uid) + (c.telefono ? ' · ' + esc(c.telefono) : '') +
-                        '</span></span></label></li>'
+                        '</span></label>' +
+                        '<select class="i-r rounded-lg border border-[var(--border-control)] bg-[var(--surface-raised)] px-2 py-1 text-[0.8rem]" data-ref="' + esc(c.ref) + '">' +
+                        '<option value="asesor"' + (c.rolSugerido === 'asesor' ? ' selected' : '') + '>Asesor</option>' +
+                        '<option value="gerente"' + (c.rolSugerido === 'gerente' ? ' selected' : '') + '>Gerente</option>' +
+                        '</select></li>'
                     )
                     .join('') +
                   '</ul>' +
@@ -548,8 +561,13 @@ const estado = (a: Asesor) => {
           }
 
           if (e.target.id === 'i-traer') {
-            const refs = [...document.querySelectorAll('.i-c:checked')].map((c) => c.value);
-            if (!refs.length) { alert('No marcó a nadie.'); return; }
+            // Se manda el rol elegido en cada fila, no el sugerido: lo que vale
+            // es lo que el administrador dejó en el desplegable.
+            const seleccion = [...document.querySelectorAll('.i-c:checked')].map((c) => {
+              const sel = document.querySelector('.i-r[data-ref="' + CSS.escape(c.value) + '"]');
+              return { ref: c.value, rol: sel ? sel.value : 'asesor' };
+            });
+            if (!seleccion.length) { alert('No marcó a nadie.'); return; }
             const b = e.target;
             b.disabled = true;
             b.textContent = 'Trayendo…';
@@ -557,12 +575,12 @@ const estado = (a: Asesor) => {
               const r = await fetch('/api/asesores', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ accion: 'importar', datos: { refs } }),
+                body: JSON.stringify({ accion: 'importar', datos: { seleccion } }),
               });
               const d = await r.json();
               if (!d.ok) throw new Error(d.error || 'no se pudo importar');
               alert(
-                d.creados.length + ' asesor(es) traídos, inactivos.\n\n' +
+                d.creados.length + ' traídos, inactivos:\n' + d.creados.join('\n') + '\n\n' +
                 (d.omitidos.length ? 'Omitidos: ' + d.omitidos.map((o) => o.nombre + ' (' + o.motivo + ')').join(', ') + '\n\n' : '') +
                 'Actíve­los en la tabla de arriba y asígneles clave.'
               );
