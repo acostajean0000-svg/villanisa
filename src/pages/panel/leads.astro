@@ -96,11 +96,16 @@ const ETIQUETA: Record<LeadGuardado['crm_estado'], string> = {
       Estos contactos están guardados en la base de datos de Villanisa. Se escriben aquí
       primero y después se replican a AlterEstate: si el CRM falla, el lead sigue estando.
     </p>
-    <p class="mt-4 text-[0.9rem]">
-      <a class="underline underline-offset-4" href="/panel/">← Panel de inventario</a>
-      <span class="mx-2 text-[var(--text-mute)]">·</span>
-      <a class="underline underline-offset-4" href="/panel/asesores/">Ruleta de asesores →</a>
-    </p>
+    <nav class="mt-6 flex flex-wrap gap-3" aria-label="Secciones del panel">
+      <a href="/panel/" class="btn btn-ghost">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+        Panel de inventario
+      </a>
+      <a href="/panel/asesores/" class="btn btn-ghost">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Ruleta de asesores
+      </a>
+    </nav>
   </section>
 
   {!configurado && (
